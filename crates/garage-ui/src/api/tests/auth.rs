@@ -641,6 +641,8 @@
         let dir = crate::util::temp_dir();
         let app = app_for(&dir, "http://127.0.0.1:9").await;
         login(&app).await;
+        // Freeze the limiter clock: slow bcrypt or a loaded machine must not refill the quota.
+        app.limits.clock().freeze();
         let submitted = "wrong horse";
         for _ in 0..10 {
             let failed = exchange(
@@ -784,6 +786,8 @@
         let dir = crate::util::temp_dir();
         let app = app_for(&dir, "http://127.0.0.1:9").await;
         let (session, _) = login(&app).await;
+        // Freeze the limiter clock: slow bcrypt or a loaded machine must not refill the quota.
+        app.limits.clock().freeze();
         let submitted = "wrong horse";
         let replacement = "updated horse";
         for _ in 0..10 {
