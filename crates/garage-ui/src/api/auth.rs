@@ -2,6 +2,7 @@ use super::Authed;
 use super::ClientIp;
 use super::hash_password;
 use super::record;
+use super::record_noisy;
 use super::validate_password;
 use super::validate_username;
 use crate::db::{self, User};
@@ -47,7 +48,7 @@ pub(crate) async fn setup(
     Json(body): Json<Credentials>,
 ) -> Result<Response, ApiError> {
     if let Err(wait) = app.limits.init(&ip.0) {
-        record(
+        record_noisy(
             &app,
             &body.username,
             &ip.0,
@@ -55,7 +56,6 @@ pub(crate) async fn setup(
             "rate_limited",
             "POST",
             "/api/setup",
-            "",
             429,
         )
         .await?;
@@ -144,10 +144,26 @@ pub(crate) async fn login(
     headers: HeaderMap,
     Json(body): Json<Credentials>,
 ) -> Result<Response, ApiError> {
-    // No account can hold such a name, so skip the limiter and bcrypt: otherwise a
-    // client varying a huge username grows limiter memory and burns CPU for free.
+    // Every attempt, whatever the username, first spends the client address's total
+    // budget. Varying the username therefore cannot buy more bcrypt work or audit rows.
+    if let Err(wait) = app.limits.login_address(&ip.0) {
+        record_noisy(
+            &app,
+            &body.username,
+            &ip.0,
+            "rate_limited",
+            "rate_limited",
+            "POST",
+            "/api/auth/login",
+            429,
+        )
+        .await?;
+        return Err(ApiError::rate_limited(wait.as_secs()));
+    }
+    // No account can hold such a name, so skip the per-username limiter and bcrypt:
+    // otherwise a client varying a huge username grows limiter memory and burns CPU.
     if validate_username(&body.username).is_err() {
-        record(
+        record_noisy(
             &app,
             &body.username,
             &ip.0,
@@ -155,14 +171,13 @@ pub(crate) async fn login(
             "invalid_credentials",
             "POST",
             "/api/auth/login",
-            "",
             401,
         )
         .await?;
         return Err(ApiError::invalid_credentials());
     }
     if let Err(wait) = app.limits.login(&ip.0, &body.username) {
-        record(
+        record_noisy(
             &app,
             &body.username,
             &ip.0,
@@ -170,7 +185,6 @@ pub(crate) async fn login(
             "rate_limited",
             "POST",
             "/api/auth/login",
-            "",
             429,
         )
         .await?;

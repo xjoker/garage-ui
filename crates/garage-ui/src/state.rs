@@ -410,10 +410,14 @@ pub async fn boot_with(loaded: Loaded, quota: governor::Quota) -> anyhow::Result
         http = http.add_root_certificate(certificate);
     }
     let http = http.build().context_client()?;
+    let limits = Limits::with_login_ip_quota(
+        quota,
+        governor::Quota::per_minute(loaded.settings.login_ip_per_minute),
+    );
     Ok(App {
         db: pool,
         settings: Arc::new(loaded.settings),
-        limits: Arc::new(Limits::new(quota)),
+        limits: Arc::new(limits),
         dummy_hash: Arc::new(dummy_hash),
         http,
         fixtures: Arc::new(std::sync::Mutex::new(HashMap::new())),

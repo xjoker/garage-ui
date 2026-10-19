@@ -57,10 +57,13 @@ On Garage v2.3.0 and v2.4.1, explicitly set `S3_ENDPOINT_URL` and `S3_REGION`; t
 | `SESSION_ABSOLUTE_SECS` | `86400` | Maximum session age, normally 24 hours |
 | `SESSION_IDLE_SECS` | `7200` | Idle session limit, normally 2 hours |
 | `TRUSTED_PROXY` | Unset | Exactly `true` trusts forwarded client-address headers for client IP handling |
+| `LOGIN_IP_LIMIT_PER_MINUTE` | `30` | Total login attempts per minute from one client address, across all usernames; positive integer, otherwise uses 30 |
 | `GARAGE_UI_BOOTSTRAP_USERNAME` | Unset | Initial UI administrator username |
 | `GARAGE_UI_BOOTSTRAP_PASSWORD_HASH` | Unset | Matching bcrypt password hash; imported only into a database with no users |
 
 Only trust proxy headers when direct access is restricted and your reverse proxy replaces incoming client-address headers. `BASE_PATH` must match the path served by that proxy. A provided session key must be preserved along with the UI database; changing the key prevents existing cookies from authenticating.
+
+Login attempts are limited twice: 10 per minute for each client address and lowercased username, and `LOGIN_IP_LIMIT_PER_MINUTE` in total for each client address, whatever username it submits. Both answer 429 with `Retry-After`. The client address follows `TRUSTED_PROXY`; IPv6 clients share one budget per /64 network. Raise the total only when many legitimate users sign in through one address, such as a NAT gateway or a proxy that does not forward client addresses.
 
 Session and timeout durations accept positive seconds up to one year; invalid values fall back to defaults. Invalid upload-size and fan-out settings also fall back to defaults. Invalid `COOKIE_SECURE` values stop startup.
 

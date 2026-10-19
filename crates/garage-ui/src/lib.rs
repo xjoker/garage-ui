@@ -57,13 +57,60 @@ pub fn start_audit_retention(pool: sqlx::SqlitePool) {
     }));
 }
 
-pub fn start_limiter_cleanup(limits: std::sync::Arc<limit::Limits>) {
+pub fn start_limiter_cleanup(limits: std::sync::Arc<limit::Limits>, pool: sqlx::SqlitePool) {
     drop(tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             limits.retain_recent();
+            // A database error can name the file path. Log the counts only.
+            match flush_suppressed_audit(&pool, &limits).await {
+                Ok(0) => {}
+                Ok(rows) => tracing::info!(rows, "wrote suppressed audit summaries"),
+                Err(pending) => {
+                    tracing::warn!(pending, "could not write suppressed audit summaries")
+                }
+            }
         }
     }));
+}
+
+/// Writes one `audit_suppressed` row for each (address, path) whose unauthenticated audit
+/// rows were held back since the last flush. `target` carries the suppressed count.
+/// Returns the number of summary rows written; on failure the counters are restored and
+/// the number still pending is returned.
+pub(crate) async fn flush_suppressed_audit(
+    pool: &sqlx::SqlitePool,
+    limits: &limit::Limits,
+) -> Result<usize, usize> {
+    let pending = limits.take_suppressed();
+    let mut written = 0;
+    let mut iter = pending.into_iter();
+    while let Some(row) = iter.next() {
+        let target = format!("suppressed={}", row.count);
+        let inserted = db::insert_audit(
+            pool,
+            db::AuditEvent {
+                username: "",
+                ip: &row.ip,
+                result: "rate_limited",
+                reason: "audit_suppressed",
+                method: "POST",
+                path: row.path,
+                target: &target,
+                status: 429,
+            },
+        )
+        .await;
+        if inserted.is_err() {
+            let mut rest = vec![row];
+            rest.extend(iter);
+            let left = rest.len();
+            limits.restore_suppressed(rest);
+            return Err(left);
+        }
+        written += 1;
+    }
+    Ok(written)
 }
 
 #[cfg(test)]

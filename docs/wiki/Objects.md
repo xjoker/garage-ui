@@ -43,6 +43,8 @@ Deletion requires an administrator and explicit confirmation.
 - For several objects, select their checkboxes and choose **Delete**. Review the counted selection and total bytes, then complete the confirmation.
 - For a prefix row, open **Actions → Delete folder**. Confirm the prefix. This recursively deletes every object whose key starts with that prefix, including objects outside the loaded page.
 
+The API form is `DELETE /api/buckets/{id}/object?key=<folder>&recursive=true`. The server always treats `key` as a folder: when it does not end with `/`, the server appends one. `key=logs` therefore deletes `logs/a.txt` but not `logs.txt` or `logs2/b.txt`. An empty or missing key is rejected with `key_required`, so a recursive delete never targets the whole bucket.
+
 A partial failure can leave some objects deleted and others present. Read the per-key errors, let the refreshed list show the remaining state, and retry only after resolving the cause. Deletion is not an undoable move to a trash folder.
 
 If **Bucket key** appears or the list is unavailable, see [Keys and permissions](Keys-and-permissions.md#choose-the-key-used-for-object-operations) and [Troubleshooting](Troubleshooting.md).

@@ -43,7 +43,7 @@ Acceptance: The session ID is different before and after login. After logout, a 
 ## 3.5 Rate limiting
 
 - One shared rate-limit component. An in-process sliding window, default 10 times per minute.
-  - Count login by "client address + lowercased username".
+  - Count login by "client address + lowercased username", and also by client address alone across all usernames (`LOGIN_IP_LIMIT_PER_MINUTE`, default 30 per minute). Every login request, including one with a username no account can hold, spends the per-address count first. IPv6 addresses are counted per /64 network.
   - Count setup by client address.
   - Count password change by username.
   - Count share-link generation and download tokens by user (P1).
@@ -51,7 +51,7 @@ Acceptance: The session ID is different before and after login. After logout, a 
 - Over the limit, return 429, with `Retry-After`.
 - When the user does not exist, or is disabled, still run one hash comparison of equal duration. The error text is the same, so the account cannot be enumerated.
 
-Acceptance: The 11th request for the same key returns 429. After the window has passed, requests are accepted again. Counts for different usernames do not affect each other.
+Acceptance: The 11th request for the same key returns 429. After the window has passed, requests are accepted again. Per-username counts for different usernames do not affect each other; the 31st login attempt from one address within a minute returns 429 whatever the username.
 
 ## 3.6 CSRF
 
@@ -114,6 +114,7 @@ Acceptance: Browsers A and B log in as the same account. After A changes the pas
 
 - Write an audit record for a successful login, a failed login, a rate-limit hit, logout, setup, and a password change. Include the time (UTC), the username, the client IP, the result, and a reason code.
 - An audit record does not contain the password or the request body.
+- Records that an unauthenticated client can cause without naming a possible account (a login with an illegal username, or a 429 from the login or setup limiter) are written up to 10 per client address per minute. Further records are counted and, about once a minute, written as one record per address and path with reason `audit_suppressed`, result `rate_limited`, and target `suppressed=<count>`. Failed and successful logins for well-formed usernames are always written in full.
 
 Acceptance: After one failed login, the audit table has one new record, and that record includes the IP.
 

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -42,6 +42,7 @@ pub struct Settings {
     pub json_body_limit: usize,
     pub max_upload_bytes: u64,
     pub fanout_in_flight: NonZeroUsize,
+    pub login_ip_per_minute: NonZeroU32,
     pub s3_region: String,
     // None when S3_REGION was empty. s3_region then stays the "garage" default.
     pub configured_s3_region: Option<String>,
@@ -203,6 +204,9 @@ pub fn load_map(env: &HashMap<String, String>) -> anyhow::Result<Loaded> {
             json_body_limit: JSON_BODY_LIMIT,
             max_upload_bytes: max_upload_mb.saturating_mul(1024 * 1024),
             fanout_in_flight: fanout_in_flight(env.get("FANOUT_LIMIT").map(String::as_str)),
+            login_ip_per_minute: login_ip_per_minute(
+                env.get("LOGIN_IP_LIMIT_PER_MINUTE").map(String::as_str),
+            ),
             s3_region: configured_s3_region
                 .clone()
                 .unwrap_or_else(|| "garage".to_string()),
@@ -387,6 +391,13 @@ fn fanout_in_flight(value: Option<&str>) -> NonZeroUsize {
         .and_then(|text| text.parse::<usize>().ok())
         .and_then(NonZeroUsize::new)
         .unwrap_or(crate::limit::DEFAULT_FANOUT_IN_FLIGHT)
+}
+
+fn login_ip_per_minute(value: Option<&str>) -> NonZeroU32 {
+    value
+        .and_then(|text| text.parse::<u32>().ok())
+        .and_then(NonZeroU32::new)
+        .unwrap_or(crate::limit::DEFAULT_LOGIN_IP_PER_MINUTE)
 }
 
 fn duration_or_default(value: Option<&str>, default: u64) -> Duration {
@@ -713,6 +724,18 @@ mod tests {
         assert_eq!(two.settings.fanout_in_flight.get(), 2);
         let wide = load_map(&map(&[("FANOUT_LIMIT", "1000000")])).unwrap();
         assert_eq!(wide.settings.fanout_in_flight.get(), 1_000_000);
+    }
+
+    #[test]
+    fn login_ip_limit_falls_back_to_thirty_unless_positive() {
+        let unset = load_map(&map(&[])).unwrap();
+        assert_eq!(unset.settings.login_ip_per_minute.get(), 30);
+        for value in ["0", "-1", "nope", "1.5", "", "4294967296"] {
+            let loaded = load_map(&map(&[("LOGIN_IP_LIMIT_PER_MINUTE", value)])).unwrap();
+            assert_eq!(loaded.settings.login_ip_per_minute.get(), 30, "{value}");
+        }
+        let sixty = load_map(&map(&[("LOGIN_IP_LIMIT_PER_MINUTE", "60")])).unwrap();
+        assert_eq!(sixty.settings.login_ip_per_minute.get(), 60);
     }
 
     #[test]

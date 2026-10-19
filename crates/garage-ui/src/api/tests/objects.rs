@@ -1478,7 +1478,7 @@
             serde_json::from_str::<Value>(&run.response.body).unwrap(),
             json!({ "deleted": 2500, "errors": [] })
         );
-        assert_recursive_traffic(&run, "docs/2024");
+        assert_recursive_traffic(&run, "docs/2024/");
     }
 
     #[tokio::test]
@@ -1501,7 +1501,7 @@
                 ]
             })
         );
-        assert_recursive_traffic(&run, "docs/2024");
+        assert_recursive_traffic(&run, "docs/2024/");
     }
 
     #[tokio::test]
@@ -1560,7 +1560,7 @@
             assert!(line.starts_with("GET "), "{line}");
             assert_eq!(
                 percent_decode(query_value(request_target(line), "prefix").unwrap_or("")),
-                "docs/2024"
+                "docs/2024/"
             );
             list_xml(false, None, &[], &[])
         })
@@ -1820,7 +1820,7 @@
         assert_eq!(row.reason, "ok");
         assert_eq!(row.method, "DELETE");
         assert_eq!(row.path, "/api/buckets/bkt-1/object");
-        assert_eq!(row.target, "bkt-1/docs/2024");
+        assert_eq!(row.target, "bkt-1/docs/2024/");
         assert_eq!(row.status, 200);
         assert!(
             !audit_text(row).contains("notes.txt"),
@@ -4226,5 +4226,114 @@
         )
         .await;
         assert_eq!(put.status, StatusCode::BAD_REQUEST, "{}", put.body);
+        assert!(mock.requests().is_empty(), "{:?}", mock.requests());
+    }
+
+    // ---- M3: recursive delete is bounded by the folder separator ----
+
+    const SIBLING_STORE: [&str; 6] = ["t.txt", "tenant.txt", "trace.txt", "t/a.txt", "t/b/c.txt", "/abs.txt"];
+
+    struct FolderRun {
+        response: Exchange,
+        listed: Vec<String>,
+        bodies: Vec<String>,
+    }
+
+    async fn recursive_delete_against_store(key_query: &str) -> FolderRun {
+        let last = Arc::new(Mutex::new(String::new()));
+        let last_mock = Arc::clone(&last);
+        let mock = S3Mock::start(move |line| {
+            if line.starts_with("POST ") {
+                let prefix = last_mock.lock().unwrap().clone();
+                let keys: Vec<&str> = SIBLING_STORE.iter().copied().filter(|key| key.starts_with(&prefix)).collect();
+                return delete_result(&keys, &[]);
+            }
+            assert!(line.starts_with("GET "), "{line}");
+            let prefix = percent_decode(query_value(request_target(line), "prefix").unwrap_or(""));
+            *last_mock.lock().unwrap() = prefix.clone();
+            let objects: Vec<(&str, i64, &str)> = SIBLING_STORE
+                .iter()
+                .copied()
+                .filter(|key| key.starts_with(&prefix))
+                .map(|key| (key, 1, "abc"))
+                .collect();
+            http_xml_list(&objects)
+        })
+        .await;
+        let dir = crate::util::temp_dir();
+        let app = object_app(&dir, &mock.url, true).await;
+        let (session, _) = login(&app).await;
+        let response = exchange(
+            &app,
+            request("DELETE", &format!("/api/buckets/bkt-1/object?{key_query}&recursive=true"), None, Some(&session)),
+        )
+        .await;
+        let listed = mock
+            .requests()
+            .iter()
+            .filter(|line| line.starts_with("GET "))
+            .map(|line| percent_decode(query_value(request_target(line), "prefix").unwrap_or("")))
+            .collect();
+        FolderRun { response, listed, bodies: mock.bodies() }
+    }
+
+    fn http_xml_list(objects: &[(&str, i64, &str)]) -> String {
+        list_xml(false, None, objects, &[])
+    }
+
+    #[tokio::test]
+    async fn object_delete_recursive_without_a_slash_deletes_only_the_folder() {
+        let run = recursive_delete_against_store("key=t").await;
+        assert_eq!(run.response.status, StatusCode::OK, "{}", run.response.body);
+        assert_eq!(
+            serde_json::from_str::<Value>(&run.response.body).unwrap(),
+            json!({ "deleted": 2, "errors": [] })
+        );
+        assert_eq!(run.listed, vec!["t/".to_string()]);
+        let sent = run.bodies.join("\n");
+        assert!(sent.contains("<Key>t/a.txt</Key>") && sent.contains("<Key>t/b/c.txt</Key>"), "{sent}");
+        for sibling in ["t.txt", "tenant.txt", "trace.txt"] {
+            assert!(!sent.contains(&format!("<Key>{sibling}</Key>")), "{sibling} was deleted: {sent}");
+        }
+    }
+
+    #[tokio::test]
+    async fn object_delete_recursive_with_a_slash_is_unchanged() {
+        let run = recursive_delete_against_store("key=t%2F").await;
+        assert_eq!(run.response.status, StatusCode::OK, "{}", run.response.body);
+        assert_eq!(
+            serde_json::from_str::<Value>(&run.response.body).unwrap(),
+            json!({ "deleted": 2, "errors": [] })
+        );
+        assert_eq!(run.listed, vec!["t/".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn object_delete_recursive_root_keys_never_delete_the_bucket() {
+        for query in ["key=", "key=%2F", "key=%2F%2F"] {
+            let run = recursive_delete_against_store(query).await;
+            if query == "key=" {
+                assert_error(&run.response, StatusCode::BAD_REQUEST, "key_required", "Object key is required");
+                assert!(run.listed.is_empty(), "{:?}", run.listed);
+                continue;
+            }
+            assert_eq!(run.response.status, StatusCode::OK, "{query}: {}", run.response.body);
+            assert!(run.listed.iter().all(|prefix| !prefix.is_empty()), "{query}: {:?}", run.listed);
+            let sent = run.bodies.join("\n");
+            for kept in ["t.txt", "tenant.txt", "trace.txt", "t/a.txt"] {
+                assert!(!sent.contains(&format!("<Key>{kept}</Key>")), "{query} deleted {kept}: {sent}");
+            }
+        }
+        // Without any key parameter the request is rejected too.
+        let mock = S3Mock::start(|_| delete_ok()).await;
+        let dir = crate::util::temp_dir();
+        let app = object_app(&dir, &mock.url, true).await;
+        let (session, _) = login(&app).await;
+        let missing = exchange(
+            &app,
+            request("DELETE", "/api/buckets/bkt-1/object?recursive=true", None, Some(&session)),
+        )
+        .await;
+        assert_error(&missing, StatusCode::BAD_REQUEST, "key_required", "Object key is required");
         assert!(mock.requests().is_empty(), "{:?}", mock.requests());
     }

@@ -19,6 +19,8 @@ The **Filters** heading shows a count when any fields are nonempty. Clear each f
 
 Rejected upstream mutations are recorded as errors. A Garage response with per-node errors is also recorded as an error, even when Garage returns HTTP 200; the status column retains that upstream status. Read the result and reason together with the status. Raw upstream error details are not copied into audit records. A successful maintenance request still needs operational follow-up in Garage.
 
+Unauthenticated login and setup noise is condensed so that it cannot grow the database without bound. Per client address, up to 10 records per minute for illegal login usernames and for 429 rate-limit responses are written individually. The rest are counted and written about once a minute as a single record with reason `audit_suppressed`, result `rate_limited`, and target `suppressed=<count>`; its username is empty. Counts not yet written are lost if the server stops. Successful logins, failed logins for well-formed usernames, and authenticated actions are never condensed.
+
 ## Export filtered records
 
 Apply the desired filters and choose **Export audit**. The browser downloads `audit.csv`. The export uses the filters, rather than just copying the visible table page. The page first sends a `HEAD` request to check access and filters, then starts a native browser download from the export URL. It does not buffer the CSV into a page-created blob. Treat the file as operational data: it can contain usernames, IP addresses, paths, and targets.
