@@ -5,12 +5,82 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use governor::clock::{Clock, DefaultClock};
+use governor::clock::{Clock, DefaultClock, Reference};
+use governor::middleware::NoOpMiddleware;
+use governor::nanos::Nanos;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
 use tokio::sync::Semaphore;
 
-type Limiter = RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>;
+type Limiter =
+    RateLimiter<String, DefaultKeyedStateStore<String>, LimitClock, NoOpMiddleware<Nanos>>;
+
+/// Time source shared by every limiter in one `Limits`. It reads governor's default clock,
+/// measured from the moment the `Limits` was built. Tests can freeze it and move it forward
+/// by hand, so quota assertions do not depend on how fast the test machine is.
+#[derive(Clone)]
+pub struct LimitClock {
+    real: DefaultClock,
+    origin: <DefaultClock as Clock>::Instant,
+    #[cfg(test)]
+    frozen: Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[cfg(test)]
+const NOT_FROZEN: u64 = u64::MAX;
+
+impl LimitClock {
+    fn new() -> Self {
+        let real = DefaultClock::default();
+        let origin = real.now();
+        Self {
+            real,
+            origin,
+            #[cfg(test)]
+            frozen: Arc::new(std::sync::atomic::AtomicU64::new(NOT_FROZEN)),
+        }
+    }
+
+    fn real_now(&self) -> Nanos {
+        self.real.now().duration_since(self.origin)
+    }
+
+    /// Stops the clock at the current time. Every limiter sharing it stops replenishing.
+    #[cfg(test)]
+    pub fn freeze(&self) {
+        let now = self.real_now().as_u64();
+        let _ = self.frozen.compare_exchange(
+            NOT_FROZEN,
+            now,
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+
+    /// Freezes the clock if needed, then moves it forward by `by`.
+    #[cfg(test)]
+    pub fn advance(&self, by: Duration) {
+        self.freeze();
+        let by = u64::try_from(by.as_nanos()).expect("test advance fits in u64 nanoseconds");
+        self.frozen
+            .fetch_add(by, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Clock for LimitClock {
+    type Instant = Nanos;
+
+    fn now(&self) -> Nanos {
+        #[cfg(test)]
+        {
+            let frozen = self.frozen.load(std::sync::atomic::Ordering::SeqCst);
+            if frozen != NOT_FROZEN {
+                return Nanos::new(frozen);
+            }
+        }
+        self.real_now()
+    }
+}
 
 /// Default number of login attempts one client address may make per minute, across all
 /// usernames. `LOGIN_IP_LIMIT_PER_MINUTE` overrides it.
@@ -45,7 +115,7 @@ pub struct Limits {
     share: Limiter,
     noisy_audit: Limiter,
     suppressed: Mutex<HashMap<(String, &'static str), u64>>,
-    clock: DefaultClock,
+    clock: LimitClock,
 }
 
 impl Limits {
@@ -54,16 +124,26 @@ impl Limits {
     }
 
     pub fn with_login_ip_quota(quota: Quota, login_ip: Quota) -> Self {
+        let clock = LimitClock::new();
+        let keyed = |quota: Quota| {
+            RateLimiter::new(quota, DefaultKeyedStateStore::default(), clock.clone())
+        };
         Self {
-            login: RateLimiter::keyed(quota),
-            login_ip: RateLimiter::keyed(login_ip),
-            init: RateLimiter::keyed(quota),
-            password: RateLimiter::keyed(quota),
-            share: RateLimiter::keyed(quota),
-            noisy_audit: RateLimiter::keyed(Quota::per_minute(NOISY_AUDIT_PER_MINUTE)),
+            login: keyed(quota),
+            login_ip: keyed(login_ip),
+            init: keyed(quota),
+            password: keyed(quota),
+            share: keyed(quota),
+            noisy_audit: keyed(Quota::per_minute(NOISY_AUDIT_PER_MINUTE)),
             suppressed: Mutex::new(HashMap::new()),
-            clock: DefaultClock::default(),
+            clock,
         }
+    }
+
+    /// The clock shared by all limiters, so tests can freeze or advance it.
+    #[cfg(test)]
+    pub fn clock(&self) -> &LimitClock {
+        &self.clock
     }
 
     pub fn login(&self, ip: &str, username: &str) -> Result<(), Duration> {
@@ -123,8 +203,10 @@ impl Limits {
         }
     }
 
+    /// Setup attempts from one client address. Like `login_address`, the key is the
+    /// address key, so an IPv6 client shares one budget across its /64.
     pub fn init(&self, ip: &str) -> Result<(), Duration> {
-        self.hit(&self.init, ip)
+        self.hit(&self.init, &address_key(ip))
     }
 
     pub fn password(&self, username: &str) -> Result<(), Duration> {
@@ -398,6 +480,66 @@ mod tests {
         assert_eq!(limits.login_len(), 0);
         assert_eq!(limits.login_ip_len(), 0);
         assert_eq!(limits.share_len(), 0);
+    }
+
+    #[test]
+    fn retain_recent_drops_noisy_audit_keys_once_their_minute_has_passed() {
+        let limits = Limits::new(production_quota());
+        limits.clock().freeze();
+        for ip in ["10.0.0.1", "10.0.0.2", "2001:db8::1"] {
+            for _ in 0..10 {
+                assert!(limits.admit_noisy_audit(ip, "/api/auth/login"));
+            }
+        }
+        assert_eq!(limits.noisy_audit_len(), 3);
+        limits.clock().advance(Duration::from_secs(30));
+        limits.retain_recent();
+        assert_eq!(
+            limits.noisy_audit_len(),
+            3,
+            "keys still inside their minute are kept"
+        );
+        // A full burst is replenished 60 s after it was spent; governor keeps a key for one
+        // more emission interval (6 s) before treating it as fresh.
+        limits.clock().advance(Duration::from_secs(40));
+        limits.retain_recent();
+        assert_eq!(limits.noisy_audit_len(), 0);
+        assert!(limits.admit_noisy_audit("10.0.0.1", "/api/auth/login"));
+    }
+
+    #[test]
+    fn restore_suppressed_puts_counts_back_for_the_next_take() {
+        let limits = Limits::new(production_quota());
+        limits.clock().freeze();
+        for _ in 0..14 {
+            limits.admit_noisy_audit("10.0.0.1", "/api/auth/login");
+        }
+        let taken = limits.take_suppressed();
+        assert_eq!(taken.iter().map(|row| row.count).sum::<u64>(), 4);
+        assert!(limits.take_suppressed().is_empty());
+        limits.restore_suppressed(taken);
+        // New suppressions while the write was failing add to the restored count.
+        limits.admit_noisy_audit("10.0.0.1", "/api/auth/login");
+        assert_eq!(
+            limits.take_suppressed(),
+            vec![Suppressed {
+                ip: "10.0.0.1".into(),
+                path: "/api/auth/login",
+                count: 5
+            }]
+        );
+    }
+
+    #[test]
+    fn setup_budget_is_shared_across_one_ipv6_64() {
+        let limits = Limits::new(production_quota());
+        limits.clock().freeze();
+        for index in 0..10 {
+            assert!(limits.init(&format!("2001:db8:9:9::{index:x}")).is_ok());
+        }
+        assert!(limits.init("2001:db8:9:9:ffff::1").is_err());
+        assert!(limits.init("::ffff:192.0.2.1").is_ok());
+        assert!(limits.init("2001:db8:9:a::1").is_ok());
     }
 
     #[tokio::test]

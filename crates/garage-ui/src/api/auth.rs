@@ -67,7 +67,9 @@ pub(crate) async fn setup(
         .map_err(|_| ApiError::internal())?
         > 0
     {
-        record(
+        // After setup any client can reach this answer without an account, so its audit
+        // rows share the per-address noisy budget, like illegal login usernames.
+        record_noisy(
             &app,
             &body.username,
             &ip.0,
@@ -75,7 +77,6 @@ pub(crate) async fn setup(
             "already_initialized",
             "POST",
             "/api/setup",
-            "",
             409,
         )
         .await?;

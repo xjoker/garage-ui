@@ -114,7 +114,8 @@ Acceptance: Browsers A and B log in as the same account. After A changes the pas
 
 - Write an audit record for a successful login, a failed login, a rate-limit hit, logout, setup, and a password change. Include the time (UTC), the username, the client IP, the result, and a reason code.
 - An audit record does not contain the password or the request body.
-- Records that an unauthenticated client can cause without naming a possible account (a login with an illegal username, or a 429 from the login or setup limiter) are written up to 10 per client address per minute. Further records are counted and, about once a minute, written as one record per address and path with reason `audit_suppressed`, result `rate_limited`, and target `suppressed=<count>`. Failed and successful logins for well-formed usernames are always written in full.
+- Records that an unauthenticated client can cause without naming a possible account (a login with an illegal username, a 429 from the login or setup limiter, or a setup request answered 409 `already_initialized` after setup) are written up to 10 per client address per minute; IPv6 addresses in one /64 count as one address. Further records are counted and, about once a minute, written as one record per address and path with reason `audit_suppressed`, result `rate_limited`, status 429, an empty username, and target `suppressed=<count>`. The summary does not keep the usernames of condensed records, including well-formed usernames in condensed 429 records, and its status is a representative value. Failed and successful logins for well-formed usernames are always written in full.
+- The setup limiter (10 per minute) uses the same client-address key as the login address budget, so an IPv6 client shares it across its /64.
 
 Acceptance: After one failed login, the audit table has one new record, and that record includes the IP.
 

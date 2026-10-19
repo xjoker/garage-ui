@@ -2,6 +2,12 @@
 
 Entries describe their named release or unpublished draft. Later development work is tracked in the [delivery roadmap](docs/roadmap.md) and [verification evidence](docs/README.md#verification-evidence); it is not automatically included in a release entry.
 
+## Unreleased
+
+Changes on `main` after 20261016.3 that are not yet part of a release.
+
+- Behavior change: a recursive object delete treats `key` as a folder and appends `/` when it is missing. `key=logs-2024&recursive=true` now deletes only objects under `logs-2024/`; it no longer deletes `logs-2024.txt` or other keys that merely start with `logs-2024`. A request whose folder has no objects, including such a legacy prefix request, returns `200` with `{"deleted":0}` and no error, so scripts that relied on the old prefix match must pass the folder they mean or delete those keys individually.
+
 ## 20261016.3
 
 First public release. Requires Garage v2.3.0 or later; browser integration is verified against Garage v2.3.0 and v2.4.1.
