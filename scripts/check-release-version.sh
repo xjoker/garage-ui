@@ -105,6 +105,42 @@ with tempfile.TemporaryDirectory() as temp:
     assert not [name for name in publish_files if name.startswith(".")], publish_files
     for name in checksummed:
         assert f'"$out/{name}"' in release_script, f"release.sh does not package {name}"
+    # The uploaded assets are downloaded again and checked strictly before the draft is
+    # published (publish.sh) and after publishing (the release workflow).
+    publish_script = Path("scripts/publish.sh").read_text()
+    verify_call = publish_script.find("scripts/verify-release-assets.sh")
+    assert 0 < publish_script.find("gh release upload") < verify_call < publish_script.find("--draft=false"), "publish.sh must verify the uploaded assets before publishing"
+    workflow = Path(".github/workflows/ci.yml").read_text()
+    publish_step = workflow.find('run: scripts/publish.sh')
+    verify_step = workflow.find('scripts/verify-release-assets.sh "$RUNNER_TEMP/published-assets" "$BUILD_VERSION"')
+    assert 0 < publish_step < verify_step, "the release workflow must verify the published assets"
+    verify_script = Path("scripts/verify-release-assets.sh").read_text()
+    assert "sha256sum --check --strict SHA256SUMS" in verify_script and "--ignore-missing" not in verify_script.split("set -eu", 1)[1]
+    def verify_assets(case, change):
+        assets = root / "assets" / case
+        assets.mkdir(parents=True)
+        listed = ["garage-ui-linux-amd64", "compose.yaml", "default.env.example"]
+        for name in listed:
+            (assets / name).write_text(f"{name} fixture\n")
+        (assets / "SHA256SUMS").write_text("".join(
+            hashlib.sha256((assets / name).read_bytes()).hexdigest() + "  " + name + "\n" for name in listed
+        ))
+        change(assets)
+        return subprocess.run(["sh", "scripts/verify-release-assets.sh", str(assets)], capture_output=True, text=True)
+    def rename_template(assets):
+        sums = assets / "SHA256SUMS"
+        sums.write_text(sums.read_text().replace("default.env.example", ".env.example"))
+    ok = verify_assets("ok", lambda assets: None)
+    assert ok.returncode == 0, ok.stderr
+    for case, change, expected in [
+        ("renamed", rename_template, "listed in SHA256SUMS, not an asset: .env.example"),
+        ("extra", lambda assets: (assets / "notes.txt").write_text("x\n"), "asset not listed in SHA256SUMS: notes.txt"),
+        ("missing", lambda assets: (assets / "compose.yaml").unlink(), "listed in SHA256SUMS, not an asset: compose.yaml"),
+        ("changed", lambda assets: (assets / "compose.yaml").write_text("changed\n"), "FAILED"),
+    ]:
+        result = verify_assets(case, change)
+        assert result.returncode != 0, f"verify-release-assets accepted {case}"
+        assert expected in result.stdout + result.stderr, (case, result.stdout, result.stderr)
     artifacts = root / "artifacts"
     artifacts.mkdir()
     names = ["garage-ui-linux-amd64", "garage-ui-linux-arm64", "sbom.spdx.json", "compose.yaml", "default.env.example"]

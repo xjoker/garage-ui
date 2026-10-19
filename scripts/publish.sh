@@ -153,6 +153,11 @@ fi
 for name in $files; do
   gh release upload "$version" "$out/$name" --repo "$repo" --clobber
 done
+# Download the draft's assets as a user would and check them against SHA256SUMS before the
+# release can be published.
+assets=$(mktemp -d)
+sh scripts/verify-release-assets.sh "$assets/draft" "$version"
+rm -rf "$assets"
 
 if [ "${PUBLISH_GITHUB_RELEASE:-}" = true ]; then
   docker buildx imagetools create -t "$registry:latest" "$registry:$version"

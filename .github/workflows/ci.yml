@@ -176,3 +176,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_GITHUB_RELEASE: "true"
         run: scripts/publish.sh "$RUNNER_TEMP/release-artifacts"
+      # publish.sh already checked the draft before publishing. Check the published release
+      # again from an empty directory: the asset names must be exactly the SHA256SUMS names
+      # and `sha256sum --check --strict` must pass.
+      - name: Verify the published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh scripts/verify-release-assets.sh "$RUNNER_TEMP/published-assets" "$BUILD_VERSION"
