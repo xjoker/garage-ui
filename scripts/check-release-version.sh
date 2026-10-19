@@ -112,6 +112,8 @@ with tempfile.TemporaryDirectory() as temp:
     publish_script = Path("scripts/publish.sh").read_text()
     verify_call = publish_script.find("scripts/verify-release-assets.sh")
     assert 0 < publish_script.find("gh release upload") < verify_call < publish_script.find("--draft=false"), "publish.sh must verify the uploaded assets before publishing"
+    compare_call = publish_script.find('cmp -s "$assets/draft/SHA256SUMS" "$out/SHA256SUMS"')
+    assert verify_call < compare_call < publish_script.find("--draft=false"), "publish.sh must compare the draft's SHA256SUMS with the prepared one before publishing"
     workflow = Path(".github/workflows/ci.yml").read_text()
     publish_step = workflow.find('run: scripts/publish.sh')
     verify_step = workflow.find('scripts/verify-release-assets.sh "$RUNNER_TEMP/published-assets" "$BUILD_VERSION"')
@@ -153,7 +155,7 @@ with tempfile.TemporaryDirectory() as temp:
     ))
     (commands / "docker").write_text('#!/bin/sh\ntouch "$DOCKER_PROBE"\nexit 9\n')
     (commands / "docker").chmod(0o755)
-    for response in (f"printf '{version}\\tfalse\\n'", "exit 7"):
+    for response in (f"printf '{version}\\tfalse\\n'", f"printf '{version}\\ttrue\\n{version}\\ttrue\\n'", f"printf '{version}\\ttrue\\n{version}\\tfalse\\n'", "exit 7"):
         (commands / "gh").write_text("#!/bin/sh\n" + response + "\n")
         (commands / "gh").chmod(0o755)
         probe = root / "docker-called"
@@ -161,6 +163,8 @@ with tempfile.TemporaryDirectory() as temp:
         result = subprocess.run(["sh", "scripts/publish.sh", str(artifacts)], cwd=root, env=env, capture_output=True, text=True)
         if response == "exit 7":
             assert result.returncode == 7, result.stderr
+        elif "true" in response and "false" not in response:
+            assert result.returncode != 0 and "Several draft releases use tag" in result.stderr, result.stderr
         else:
             assert "already published" in result.stderr, result.stderr
         assert not probe.exists(), "Publication reached Docker before confirming a writable draft"

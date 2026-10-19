@@ -282,7 +282,10 @@
 
         // Files an older version left world-readable after it was stopped without a final
         // checkpoint: the WAL still holds rows that are not in the database file. The files are
-        // copied while the writer is open, which is what such a stop leaves on disk.
+        // copied while the writer is open, which is what such a stop leaves on disk. The copy is
+        // not torn: the insert above has committed, nothing else writes to `running`, and the WAL
+        // is far below the 1000-page automatic checkpoint, so all three files are at rest. The
+        // copied `-shm` is only an index of the WAL; SQLite rebuilds it when its header is invalid.
         let running = dir.join("running.sqlite");
         let writer = crate::db::open(&running).await.unwrap();
         crate::db::insert_user(&writer, "Ada", "stored-hash", "admin", false, false, None)

@@ -12,6 +12,7 @@ Capture the visible error message/code, the affected task, and the UI/Garage ver
 | Object-key configuration error | Set both S3 access key ID and secret, or neither |
 | Authentication-disabled setting | Remove `AUTH_DISABLED`, `DISABLE_AUTH`, and `GARAGE_UI_NO_AUTH` entirely |
 | Data directory not writable | Make `DATA_DIR` or its mounted volume writable by the runtime user |
+| `data directory … is writable by other users` (or `by its group`) at startup | The UI could not restrict `DATA_DIR` to `0700`, and other accounts could replace its database or session key. Give the directory to the runtime user (UID 65532 in the image), or remove group and other write permission (`chmod go-w`). A group-writable directory is accepted when its group is the runtime user's own group, as with a Kubernetes `fsGroup` equal to `runAsGroup` |
 | Listener error | `HOST` must be an IP address, `PORT` must be a TCP port from 1 to 65535 (default 3909), and that port must be available |
 
 The local health probe is:

@@ -384,7 +384,7 @@ pub async fn boot_with(loaded: Loaded, quota: governor::Quota) -> anyhow::Result
             loaded.settings.data_dir.display()
         )
     })?;
-    restrict_data_dir(&loaded.settings.data_dir);
+    restrict_data_dir(&loaded.settings.data_dir)?;
     let probe = loaded.settings.data_dir.join(".write-probe");
     std::fs::write(&probe, b"").map_err(|_| {
         anyhow::anyhow!(
@@ -475,23 +475,92 @@ fn is_bcrypt_hash(hash: &str) -> bool {
 
 // The data directory holds the user database, sessions, audit records, and the session key, so
 // only the service user may enter it. A directory the process cannot change, such as a mount
-// point owned by another user, is reported and left as it is.
+// point owned by another user, is reported and left as it is, unless other accounts could write
+// to it: then they could delete or replace `garage-ui.sqlite` or `session.key`, and startup stops.
+// A shared directory (sticky bit, such as `/tmp`) or one owned by another user is never changed.
 #[cfg(unix)]
-fn restrict_data_dir(dir: &Path) {
-    use std::os::unix::fs::PermissionsExt;
+pub(crate) fn restrict_data_dir(dir: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let Ok(meta) = std::fs::metadata(dir) else {
-        return;
+        return Ok(());
     };
-    if meta.permissions().mode() & 0o777 == 0o700 {
-        return;
+    // SAFETY: geteuid only reads the process credentials and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    match data_dir_change(meta.mode(), meta.uid(), euid) {
+        DataDirChange::None => return Ok(()),
+        DataDirChange::Set(mode) => {
+            if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode)).is_ok() {
+                return Ok(());
+            }
+            tracing::warn!(dir = %dir.display(), "could not restrict data directory permissions to 0700");
+        }
+        DataDirChange::Keep => {
+            tracing::warn!(
+                dir = %dir.display(),
+                "data directory is shared (sticky bit) or owned by another user; its permissions are left unchanged, use a dedicated directory"
+            );
+        }
     }
-    if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() {
-        tracing::warn!(dir = %dir.display(), "could not restrict data directory permissions to 0700");
+    let meta = std::fs::metadata(dir)
+        .map_err(|_| anyhow::anyhow!("data directory is not accessible: {}", dir.display()))?;
+    // SAFETY: getegid only reads the process credentials and cannot fail.
+    let egid = unsafe { libc::getegid() };
+    if let Some(writers) = data_dir_writers(meta.mode(), meta.gid(), egid) {
+        anyhow::bail!(
+            "data directory {} is writable by {writers} and could not be restricted to 0700; \
+             they could replace garage-ui.sqlite or session.key. Refusing to start: give the \
+             directory to the service user, or remove its group and other write permission",
+            dir.display()
+        );
     }
+    Ok(())
 }
 
 #[cfg(not(unix))]
-fn restrict_data_dir(_dir: &Path) {}
+pub(crate) fn restrict_data_dir(_dir: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+/// What startup does to the data directory's mode bits.
+#[derive(Debug, PartialEq, Eq)]
+enum DataDirChange {
+    /// Already `0700`.
+    None,
+    /// Change the mode to this value.
+    Set(u32),
+    /// Leave a shared or foreign directory as it is.
+    Keep,
+}
+
+/// Decides how to restrict a data directory with `mode`, owned by `owner`, for a process running
+/// as `euid`. A sticky directory is shared by design (`/tmp`), and a directory owned by another
+/// user is theirs, so neither is changed. Otherwise only the permission bits become `0700`; a
+/// setgid bit is kept, so files keep inheriting the directory's group.
+fn data_dir_change(mode: u32, owner: u32, euid: u32) -> DataDirChange {
+    if mode & 0o777 == 0o700 {
+        DataDirChange::None
+    } else if mode & 0o1000 != 0 || owner != euid {
+        DataDirChange::Keep
+    } else {
+        DataDirChange::Set(0o700 | (mode & 0o2000))
+    }
+}
+
+/// Names who, besides the service user, can create, delete, or rename entries in a data
+/// directory with `mode` and group `group`, for a process whose effective group is `egid`.
+/// Write permission for other users always counts, even with the sticky bit: they could still
+/// create `session.key` or a database sidecar before the service does. Group write permission
+/// counts unless the group is the process's own effective group, as with a Kubernetes `fsGroup`
+/// equal to `runAsGroup`; such a group is taken to be dedicated to the service.
+fn data_dir_writers(mode: u32, group: u32, egid: u32) -> Option<&'static str> {
+    if mode & 0o002 != 0 {
+        Some("other users")
+    } else if mode & 0o020 != 0 && group != egid {
+        Some("its group")
+    } else {
+        None
+    }
+}
 
 fn load_session_key(dir: &Path, material: KeyMaterial) -> anyhow::Result<Vec<u8>> {
     match material {
@@ -505,6 +574,7 @@ fn load_session_key(dir: &Path, material: KeyMaterial) -> anyhow::Result<Vec<u8>
 
 fn read_or_create_key(path: &Path) -> anyhow::Result<Vec<u8>> {
     if path.exists() {
+        restrict_key_file(path);
         let bytes = std::fs::read(path).map_err(|error| {
             anyhow::anyhow!(
                 "failed to read key file: {}: {}",
@@ -533,6 +603,25 @@ fn read_or_create_key(path: &Path) -> anyhow::Result<Vec<u8>> {
     write_private(path, &bytes)?;
     Ok(bytes)
 }
+
+// A key file left readable by others, for example one restored from a backup, is changed to
+// `0600` before it is read. A file that cannot be changed is reported and left as it is.
+#[cfg(unix)]
+fn restrict_key_file(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if !meta.file_type().is_file() || meta.permissions().mode() & 0o777 == 0o600 {
+        return;
+    }
+    if std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).is_err() {
+        tracing::warn!(file = %path.display(), "could not restrict key file permissions to 0600");
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_key_file(_path: &Path) {}
 
 fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
@@ -580,6 +669,63 @@ pub async fn test_app_with(dir: &Path, extra: &[(&str, &str)], quota: governor::
 #[cfg(test)]
 pub async fn test_app(dir: &Path) -> App {
     test_app_with(dir, &[], limit::test_quota()).await
+}
+
+#[cfg(test)]
+mod data_dir_tests {
+    use super::{DataDirChange, data_dir_change, data_dir_writers};
+
+    const ME: u32 = 65532;
+    const ROOT: u32 = 0;
+
+    #[test]
+    fn an_owned_directory_becomes_0700_and_keeps_setgid() {
+        assert_eq!(data_dir_change(0o040755, ME, ME), DataDirChange::Set(0o700));
+        assert_eq!(data_dir_change(0o040777, ME, ME), DataDirChange::Set(0o700));
+        assert_eq!(
+            data_dir_change(0o042775, ME, ME),
+            DataDirChange::Set(0o2700)
+        );
+        assert_eq!(data_dir_change(0o040700, ME, ME), DataDirChange::None);
+        assert_eq!(data_dir_change(0o042700, ME, ME), DataDirChange::None);
+    }
+
+    #[test]
+    fn a_shared_or_foreign_directory_is_not_changed() {
+        // `/tmp` with root running the service: owned, but sticky.
+        assert_eq!(data_dir_change(0o041777, ROOT, ROOT), DataDirChange::Keep);
+        assert_eq!(data_dir_change(0o041777, ROOT, ME), DataDirChange::Keep);
+        // Another user's directory, even when root could change it.
+        assert_eq!(data_dir_change(0o040755, 1000, ROOT), DataDirChange::Keep);
+        assert_eq!(data_dir_change(0o040777, ROOT, ME), DataDirChange::Keep);
+        assert_eq!(data_dir_change(0o042770, ROOT, ME), DataDirChange::Keep);
+    }
+
+    #[test]
+    fn other_users_write_permission_refuses_startup() {
+        assert_eq!(data_dir_writers(0o040777, ROOT, ME), Some("other users"));
+        assert_eq!(data_dir_writers(0o040703, ME, ME), Some("other users"));
+        // The sticky bit does not help: others could still create session.key first.
+        assert_eq!(data_dir_writers(0o041777, ROOT, ME), Some("other users"));
+        assert_eq!(data_dir_writers(0o041773, ME, ME), Some("other users"));
+    }
+
+    #[test]
+    fn a_foreign_writable_group_refuses_startup() {
+        assert_eq!(data_dir_writers(0o040770, 100, ME), Some("its group"));
+        assert_eq!(data_dir_writers(0o042775, 100, ME), Some("its group"));
+    }
+
+    #[test]
+    fn a_directory_only_the_service_can_write_keeps_starting() {
+        // Kubernetes fsGroup equal to runAsGroup: root:65532, group-writable, setgid.
+        assert_eq!(data_dir_writers(0o042770, ME, ME), None);
+        assert_eq!(data_dir_writers(0o042775, ME, ME), None);
+        // Readable but not writable by group and others.
+        assert_eq!(data_dir_writers(0o040755, ROOT, ME), None);
+        assert_eq!(data_dir_writers(0o040750, 100, ME), None);
+        assert_eq!(data_dir_writers(0o040700, 1000, ME), None);
+    }
 }
 
 #[cfg(test)]
