@@ -25,6 +25,8 @@ Acceptance: After a key is revoked, the next browse does not use that key. Grant
 
 - Requirement: When deleting a "folder", list every object under the prefix, one page at a time (at most 1000 per page), and call batch delete in batches until the listing is finished. Return the deleted count and a per-object error list (the error list is always an array). On a partial failure, return 207, or 200 plus the error details. Do not report "all succeeded".
 
+- The folder boundary is the `/` separator: the listing prefix is the requested key with a trailing `/` added when missing. `key=t` deletes `t/a.txt`, not `t.txt` or `tenant.txt`.
+
 Acceptance: All 2500 objects under the prefix are deleted, and the response is `deleted=2500`. When 3 of those objects are injected as failures, the response contains 3 errors.
 
 ## 4.4 Capacity precision (P0)

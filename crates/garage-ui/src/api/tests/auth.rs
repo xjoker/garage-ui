@@ -609,7 +609,7 @@
     }
 
     #[tokio::test]
-    async fn login_with_an_illegal_username_skips_the_limiter_and_is_audited() {
+    async fn login_with_an_illegal_username_skips_the_username_limiter_and_is_audited() {
         let dir = crate::util::temp_dir();
         let app = app_for(&dir, "http://127.0.0.1:9").await;
         login(&app).await;
@@ -627,6 +627,8 @@
         assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "{}", failed.body);
         assert_eq!(code_of(&failed.body), "invalid_credentials");
         assert_eq!(app.limits.login_len(), 0);
+        // It still spends the client address's budget (one key for 127.0.0.1).
+        assert_eq!(app.limits.login_ip_len(), 1);
         let rows = crate::db::recent_audit(&app.db).await.unwrap();
         assert_eq!(rows.len(), before.len() + 1, "{rows:?}");
         assert_eq!(rows[0].result, "failure");
@@ -1007,4 +1009,318 @@
                 }
             }
         }
+    }
+
+    // ---- M1 / M2: per-address login budget and bounded unauthenticated audit ----
+
+    fn login_from(username: &str, password: &str, forwarded: Option<&str>) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header("content-type", "application/json");
+        if let Some(forwarded) = forwarded {
+            builder = builder.header("x-forwarded-for", forwarded);
+        }
+        builder
+            .body(Body::from(
+                json!({ "username": username, "password": password }).to_string(),
+            ))
+            .unwrap()
+    }
+
+    async fn audit_count(app: &App) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit")
+            .fetch_one(&app.db)
+            .await
+            .unwrap()
+    }
+
+    async fn proxied_app(dir: &std::path::Path) -> App {
+        state::test_app_with(
+            dir,
+            &[
+                ("GARAGE_ADMIN_URL", "http://127.0.0.1:9"),
+                ("GARAGE_ADMIN_TOKEN", TOKEN),
+                ("TRUSTED_PROXY", "true"),
+            ],
+            test_quota(),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn login_attempts_from_one_address_are_capped_across_usernames() {
+        let dir = crate::util::temp_dir();
+        let app = app_for(&dir, "http://127.0.0.1:9").await;
+        login(&app).await;
+        // Default LOGIN_IP_LIMIT_PER_MINUTE is 30: thirty different usernames are answered.
+        for index in 0..30 {
+            let failed = exchange(&app, login_from(&format!("user{index}"), "wrong horse", None)).await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "attempt {index}: {}", failed.body);
+        }
+        // The 31st attempt is refused whatever the username, before any bcrypt work.
+        let blocked = exchange(&app, login_from("user30", "wrong horse", None)).await;
+        assert_eq!(blocked.status, StatusCode::TOO_MANY_REQUESTS, "{}", blocked.body);
+        assert_eq!(code_of(&blocked.body), "rate_limited");
+        let real = exchange(&app, login_from("Ada", PASSWORD, None)).await;
+        assert_eq!(real.status, StatusCode::TOO_MANY_REQUESTS, "{}", real.body);
+    }
+
+    #[tokio::test]
+    async fn login_address_budget_follows_the_trusted_proxy_setting() {
+        // Behind a trusted proxy each forwarded client has its own budget.
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        for index in 0..30 {
+            let failed = exchange(
+                &app,
+                login_from(&format!("user{index}"), "wrong horse", Some("198.51.100.1, 203.0.113.9")),
+            )
+            .await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "attempt {index}: {}", failed.body);
+        }
+        let blocked = exchange(
+            &app,
+            login_from("user30", "wrong horse", Some("198.51.100.2, 203.0.113.9")),
+        )
+        .await;
+        assert_eq!(blocked.status, StatusCode::TOO_MANY_REQUESTS, "{}", blocked.body);
+        let other = exchange(&app, login_from("Ada", PASSWORD, Some("203.0.113.10"))).await;
+        assert_eq!(other.status, StatusCode::OK, "{}", other.body);
+
+        // Without TRUSTED_PROXY a client cannot mint new budgets by rotating the header.
+        let dir = crate::util::temp_dir();
+        let app = app_for(&dir, "http://127.0.0.1:9").await;
+        login(&app).await;
+        for index in 0..30 {
+            let forwarded = format!("203.0.113.{index}");
+            let failed = exchange(
+                &app,
+                login_from(&format!("user{index}"), "wrong horse", Some(&forwarded)),
+            )
+            .await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "attempt {index}: {}", failed.body);
+        }
+        let blocked = exchange(&app, login_from("user30", "wrong horse", Some("203.0.113.200"))).await;
+        assert_eq!(blocked.status, StatusCode::TOO_MANY_REQUESTS, "{}", blocked.body);
+    }
+
+    #[tokio::test]
+    async fn illegal_usernames_spend_the_address_budget() {
+        let dir = crate::util::temp_dir();
+        let app = app_for(&dir, "http://127.0.0.1:9").await;
+        login(&app).await;
+        for index in 0..30 {
+            let name = format!("{}{index}", "x".repeat(65));
+            let failed = exchange(&app, login_from(&name, "wrong horse", None)).await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "attempt {index}: {}", failed.body);
+            assert_eq!(code_of(&failed.body), "invalid_credentials");
+        }
+        let blocked = exchange(&app, login_from("Ada", PASSWORD, None)).await;
+        assert_eq!(blocked.status, StatusCode::TOO_MANY_REQUESTS, "{}", blocked.body);
+        assert_eq!(code_of(&blocked.body), "rate_limited");
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_login_noise_writes_a_bounded_number_of_audit_rows() {
+        let dir = crate::util::temp_dir();
+        let app = app_for(&dir, "http://127.0.0.1:9").await;
+        login(&app).await;
+        let before = audit_count(&app).await;
+        let mut statuses = std::collections::BTreeMap::new();
+        for index in 0..200 {
+            let name = if index % 2 == 0 { format!("bad name {index}") } else { "x".repeat(65) };
+            let response = exchange(&app, login_from(&name, "wrong horse", None)).await;
+            *statuses.entry(response.status.as_u16()).or_insert(0) += 1;
+        }
+        let written = audit_count(&app).await - before;
+        assert!(written <= 20, "200 unauthenticated requests wrote {written} audit rows ({statuses:?})");
+        assert!(written >= 1, "the first attempts are still audited");
+    }
+
+    #[tokio::test]
+    async fn repeated_429s_write_a_bounded_number_of_audit_rows() {
+        let dir = crate::util::temp_dir();
+        let app = app_for(&dir, "http://127.0.0.1:9").await;
+        login(&app).await;
+        // Without this, slow bcrypt in the first ten attempts lets the quota refill.
+        app.limits.clock().freeze();
+        for _ in 0..10 {
+            let failed = exchange(&app, login_from("Ada", "wrong horse", None)).await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "{}", failed.body);
+        }
+        let before = audit_count(&app).await;
+        for _ in 0..100 {
+            let blocked = exchange(&app, login_from("Ada", "wrong horse", None)).await;
+            assert_eq!(blocked.status, StatusCode::TOO_MANY_REQUESTS, "{}", blocked.body);
+        }
+        let written = audit_count(&app).await - before;
+        assert!(written <= 10, "100 rate-limited requests wrote {written} audit rows");
+    }
+
+    #[tokio::test]
+    async fn login_noise_does_not_hide_audit_rows_for_real_attempts() {
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        let attacker = Some("203.0.113.66");
+        for _ in 0..15 {
+            let failed = exchange(&app, login_from(&"x".repeat(65), "wrong horse", attacker)).await;
+            assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "{}", failed.body);
+        }
+        // A well-formed username from the noisy address is still recorded in full.
+        let failed = exchange(&app, login_from("Ada", "wrong horse", attacker)).await;
+        assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "{}", failed.body);
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert_eq!(rows[0].username, "Ada");
+        assert_eq!(rows[0].ip, "203.0.113.66");
+        assert_eq!(rows[0].reason, "invalid_credentials");
+        // Another client's failure and success are recorded as usual.
+        let other = Some("198.51.100.7");
+        let failed = exchange(&app, login_from("Ada", "wrong horse", other)).await;
+        assert_eq!(failed.status, StatusCode::UNAUTHORIZED, "{}", failed.body);
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert_eq!((rows[0].username.as_str(), rows[0].ip.as_str(), rows[0].reason.as_str()), ("Ada", "198.51.100.7", "invalid_credentials"));
+        let ok = exchange(&app, login_from("Ada", PASSWORD, other)).await;
+        assert_eq!(ok.status, StatusCode::OK, "{}", ok.body);
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert_eq!((rows[0].username.as_str(), rows[0].ip.as_str(), rows[0].result.as_str()), ("Ada", "198.51.100.7", "success"));
+    }
+
+    #[tokio::test]
+    async fn suppressed_login_noise_is_summarised_with_its_count() {
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        for _ in 0..200 {
+            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.66"))).await;
+        }
+        for _ in 0..12 {
+            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("2001:db8:7:7::1"))).await;
+        }
+        let before = audit_count(&app).await;
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Ok(2));
+        assert_eq!(audit_count(&app).await, before + 2);
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        let summary = |ip: &str| {
+            rows.iter()
+                .find(|row| row.reason == "audit_suppressed" && row.ip == ip)
+                .unwrap_or_else(|| panic!("summary for {ip}: {rows:?}"))
+        };
+        let v4 = summary("203.0.113.66");
+        assert_eq!(v4.target, "suppressed=190");
+        assert_eq!((v4.result.as_str(), v4.method.as_str(), v4.path.as_str(), v4.status), ("rate_limited", "POST", "/api/auth/login", 429));
+        assert_eq!(v4.username, "");
+        assert_eq!(summary("2001:db8:7:7::/64").target, "suppressed=2");
+        // Nothing is pending afterwards, so the next flush writes nothing.
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Ok(0));
+    }
+
+    fn setup_from(username: &str, forwarded: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/api/setup")
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", forwarded)
+            .body(Body::from(
+                json!({ "username": username, "password": PASSWORD }).to_string(),
+            ))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn setup_after_init_from_one_ipv6_64_writes_a_bounded_number_of_audit_rows() {
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        app.limits.clock().freeze();
+        let before = audit_count(&app).await;
+        let mut statuses = std::collections::BTreeMap::new();
+        for index in 0..300u32 {
+            // Every request comes from a new address inside 2001:db8:9:9::/64.
+            let forwarded = format!("2001:db8:9:9:{:x}:{:x}::1", index >> 16, index & 0xffff);
+            let response = exchange(&app, setup_from(&"x".repeat(128), &forwarded)).await;
+            *statuses.entry(response.status.as_u16()).or_insert(0u32) += 1;
+        }
+        // The /64 shares one setup budget of ten; the rest is refused before the database.
+        assert_eq!(statuses, std::collections::BTreeMap::from([(409, 10), (429, 290)]));
+        let written = audit_count(&app).await - before;
+        assert_eq!(written, 10, "300 setup requests from one /64 wrote {written} audit rows");
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Ok(1));
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        let summary = &rows[0];
+        assert_eq!(
+            (summary.ip.as_str(), summary.path.as_str(), summary.reason.as_str(), summary.target.as_str()),
+            ("2001:db8:9:9::/64", "/api/setup", "audit_suppressed", "suppressed=290")
+        );
+    }
+
+    #[tokio::test]
+    async fn setup_after_init_from_one_ipv4_address_writes_a_bounded_number_of_audit_rows() {
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        app.limits.clock().freeze();
+        let before = audit_count(&app).await;
+        let mut statuses = std::collections::BTreeMap::new();
+        for _ in 0..300 {
+            let response = exchange(&app, setup_from("Mallory", "203.0.113.5")).await;
+            *statuses.entry(response.status.as_u16()).or_insert(0u32) += 1;
+        }
+        assert_eq!(statuses, std::collections::BTreeMap::from([(409, 10), (429, 290)]));
+        // 409 and 429 rows share the address's ten noisy rows per minute.
+        let written = audit_count(&app).await - before;
+        assert_eq!(written, 10, "300 setup requests from one address wrote {written} audit rows");
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert!(
+            rows.iter()
+                .take(10)
+                .all(|row| row.reason == "already_initialized" && row.ip == "203.0.113.5"),
+            "{rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_summary_write_keeps_the_unwritten_counts_for_the_next_flush() {
+        let dir = crate::util::temp_dir();
+        let app = proxied_app(&dir).await;
+        login(&app).await;
+        app.limits.clock().freeze();
+        for _ in 0..25 {
+            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.66"))).await;
+        }
+        for _ in 0..13 {
+            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.77"))).await;
+        }
+        // Summaries are written in address order; make the second one fail.
+        sqlx::query(
+            "CREATE TRIGGER fail_summary BEFORE INSERT ON audit WHEN NEW.ip = '203.0.113.77' \
+             BEGIN SELECT RAISE(ABORT, 'injected failure'); END",
+        )
+        .execute(&app.db)
+        .await
+        .unwrap();
+        let summaries = |rows: &[crate::db::AuditRow]| {
+            rows.iter()
+                .filter(|row| row.reason == "audit_suppressed")
+                .map(|row| (row.ip.clone(), row.target.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Err(1));
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert_eq!(summaries(&rows), vec![("203.0.113.66".to_string(), "suppressed=15".to_string())]);
+
+        sqlx::query("DROP TRIGGER fail_summary").execute(&app.db).await.unwrap();
+        // Only the failed counter is retried, with its count unchanged.
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Ok(1));
+        let rows = crate::db::recent_audit(&app.db).await.unwrap();
+        assert_eq!(
+            summaries(&rows),
+            vec![
+                ("203.0.113.77".to_string(), "suppressed=3".to_string()),
+                ("203.0.113.66".to_string(), "suppressed=15".to_string()),
+            ]
+        );
+        assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Ok(0));
     }

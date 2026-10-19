@@ -19,6 +19,21 @@ The **Filters** heading shows a count when any fields are nonempty. Clear each f
 
 Rejected upstream mutations are recorded as errors. A Garage response with per-node errors is also recorded as an error, even when Garage returns HTTP 200; the status column retains that upstream status. Read the result and reason together with the status. Raw upstream error details are not copied into audit records. A successful maintenance request still needs operational follow-up in Garage.
 
+Unauthenticated login and setup noise is condensed so that it cannot grow the database without bound. Per client address, up to 10 records per minute are written individually for illegal login usernames, for 429 rate-limit responses from login or setup (including 429s for a well-formed username), and for setup requests answered 409 `already_initialized` after the first administrator exists. These records share one budget per address across both paths. The client address follows `TRUSTED_PROXY`; IPv6 addresses in one /64 network count as one address. The rest are counted and written about once a minute as one summary record per address and path. Counts not yet written are lost if the server stops; a failed summary write keeps its counts for the next attempt. Successful logins, failed logins for well-formed usernames, and authenticated actions are never condensed.
+
+A summary record has these fields:
+
+| Field | Value |
+| --- | --- |
+| username | Empty. The usernames of the condensed records, including well-formed usernames in condensed 429 records, are not kept. |
+| ip | The address the records were counted under: an IPv4 address, an IPv6 network such as `2001:db8:9:9::/64`, or `*` for counts folded together after 4096 distinct addresses |
+| result, reason | `rate_limited`, `audit_suppressed` |
+| method, path | `POST` and the request path, `/api/auth/login` or `/api/setup` |
+| target | `suppressed=<count>`, the number of records that were not written |
+| status | `429`. This is a fixed representative value; the condensed records may have been 401, 409, or 429 responses. |
+
+To see which username an address targeted after its budget was spent, check the individual records written before the summary; failed logins for well-formed usernames are still recorded in full.
+
 ## Export filtered records
 
 Apply the desired filters and choose **Export audit**. The browser downloads `audit.csv`. The export uses the filters, rather than just copying the visible table page. The page first sends a `HEAD` request to check access and filters, then starts a native browser download from the export URL. It does not buffer the CSV into a page-created blob. Treat the file as operational data: it can contain usernames, IP addresses, paths, and targets.

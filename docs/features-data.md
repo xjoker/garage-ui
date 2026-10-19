@@ -29,7 +29,7 @@ Acceptance: While a 1 GB file is uploading, server resident memory grows by at m
 ## 5.4 Delete
 
 - Requirement: Delete one object, batch-delete a multi-selection (at most 1000 keys per call), and recursively delete a folder (see 4.3 of [correctness.md](correctness.md)). Each one requires a confirmation dialog.
-- API: `DELETE /api/buckets/{id}/object?key=<key>[&recursive=true]`; `POST /api/buckets/{id}/objects:delete` (`keys[]`) (A).
+- API: `DELETE /api/buckets/{id}/object?key=<key>[&recursive=true]`; `POST /api/buckets/{id}/objects:delete` (`keys[]`) (A). With `recursive=true`, `key` names a folder: the server appends `/` when it is missing, so sibling keys that merely share the leading characters are not deleted.
 - Garage: S3 `DeleteObject`, `DeleteObjects`, `ListObjectsV2`.
 
 Acceptance: A batch of 1001 keys returns 400. A partial failure is returned object by object.

@@ -310,6 +310,28 @@ async fn record(
     .map_err(|_| ApiError::internal())
 }
 
+/// Audit rows that an unauthenticated client can trigger without naming a real account
+/// (an illegal username, or any 429 from the login and setup limiters). Up to the per-address
+/// budget in `Limits::admit_noisy_audit` they are written as usual. Past it they are only
+/// counted, and the limiter cleanup task writes one `audit_suppressed` row per address and
+/// path with the count, so the audit table cannot grow without bound.
+#[allow(clippy::too_many_arguments)]
+async fn record_noisy(
+    app: &App,
+    username: &str,
+    ip: &str,
+    result: &'static str,
+    reason: &'static str,
+    method: &str,
+    path: &'static str,
+    status: i64,
+) -> Result<(), ApiError> {
+    if !app.limits.admit_noisy_audit(ip, path) {
+        return Ok(());
+    }
+    record(app, username, ip, result, reason, method, path, "", status).await
+}
+
 #[cfg(test)]
 mod tests {
     include!("tests/support.rs");

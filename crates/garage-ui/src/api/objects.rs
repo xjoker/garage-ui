@@ -1054,6 +1054,16 @@ fn required_key(key: Option<String>) -> Result<String, ApiError> {
         .ok_or_else(|| ApiError::bad_request("key_required", "Object key is required"))
 }
 
+/// The listing prefix for a recursive delete of the folder named by `key`: the key itself
+/// when it already ends with `/`, otherwise the key plus `/`. `key` is never empty here
+/// (`required_key` rejects that), so the result is never the empty, whole-bucket prefix.
+fn folder_prefix(mut key: String) -> String {
+    if !key.ends_with('/') {
+        key.push('/');
+    }
+    key
+}
+
 pub(crate) async fn delete_bucket_object(
     State(app): State<App>,
     Authed(current): Authed,
@@ -1061,6 +1071,11 @@ pub(crate) async fn delete_bucket_object(
     Query(query): Query<DeleteObjectQuery>,
 ) -> Result<Response, ApiError> {
     let key = required_key(query.key)?;
+    let recursive = query.recursive == Some(true);
+    // A recursive delete removes a folder, never a bare string prefix: `key=t` must not
+    // also take `t.txt` and `tenant.txt`. Treat the key as the folder `key/`. The UI
+    // already sends the trailing slash, so its requests are unchanged.
+    let key = if recursive { folder_prefix(key) } else { key };
     let path = format!("/api/buckets/{id}/object");
     let target = format!("{id}/{key}");
     if let Err(error) = require(&current.user, Op::WriteObjects) {
@@ -1072,7 +1087,7 @@ pub(crate) async fn delete_bucket_object(
             return reject_object(&app, &current, "error", "DELETE", &path, &target, error).await;
         }
     };
-    if query.recursive == Some(true) {
+    if recursive {
         let outcome = match objects::delete_prefix(&app, &id, &key, tenant.as_ref()).await {
             Ok(outcome) => outcome,
             Err(error) => {
