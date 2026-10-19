@@ -4,7 +4,15 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 ## Unreleased
 
-Changes on `main` after 20261016.3 that are not yet part of a release.
+Changes on `main` after 20261019.1 that are not yet part of a release.
+
+None yet.
+
+## 20261019.1
+
+Requires Garage v2.3.0 or later (unchanged). Release checks for this version ran against Garage v2.4.1.
+
+**Upgrade note: every user must sign in again once after upgrading.** The sessions table now stores only the SHA-256 digest of each session cookie. On its first start this version deletes every session written by an earlier version instead of converting it, because a cookie value that was stored in a database file or backup must not stay valid. All open browser sessions, and any script that holds a session cookie, are signed out; accounts, passwords, and roles are unchanged. The startup log records the deletion as `signed out sessions stored before session digests` with the number of sessions removed.
 
 - Behavior change: a viewer can no longer be bound to a Garage key that can write. `POST /api/users` and `PATCH /api/users/{id}` read the key's bucket permissions from Garage and refuse a key that holds `write` or `owner` on any bucket with `403 key_exceeds_role`. A viewer that is already bound to such a key stays bound but is read-only: uploads, deletes, and incomplete-upload aborts return `403 viewer_read_only` before any S3 request, and reads keep working. Rebind those accounts to a read-only key, or make them administrators, if they need to change objects.
 - Behavior change: a recursive object delete treats `key` as a folder and appends `/` when it is missing. `key=logs-2024&recursive=true` now deletes only objects under `logs-2024/`; it no longer deletes `logs-2024.txt` or other keys that merely start with `logs-2024`. A request whose folder has no objects, including such a legacy prefix request, returns `200` with `{"deleted":0}` and no error, so scripts that relied on the old prefix match must pass the folder they mean or delete those keys individually.
@@ -21,6 +29,10 @@ Changes on `main` after 20261016.3 that are not yet part of a release.
 - Release builds no longer contain the test-only `GET /api/objects/preview`, `GET /api/objects/download`, and `POST /api/objects` routes. They served only in-memory test fixtures or answered `501`; object access uses the `/api/buckets/{id}/...` routes, so the UI is unaffected. These paths now behave like any other unknown path.
 - The Users page asks for confirmation before deleting an account; **Cancel** or Escape keeps it.
 - Audit the `403 viewer_read_only` refusal of incomplete-upload aborts (`DELETE /api/buckets/{id}/multipart`) as a `denied` row, like the refused uploads and deletes, so every refused object change by a bound viewer is audited.
+- Deleting a user also deletes its sessions and unused ZIP archive tokens in the same transaction, instead of relying only on SQLite `ON DELETE CASCADE`. User ids can be reused, so a session left behind (for example with foreign keys off) could otherwise sign in as the next account created with that id. A deleted user's cookies stop working immediately.
+- Release publication waits up to 300 seconds, instead of 60, for GHCR to resolve the `latest` image tag to the verified release image, and bounds each registry query to 10 seconds.
+- Add a Simplified Chinese README (`README.zh-CN.md`). The README quick start downloads the environment template as `default.env.example`, its release asset name, and saves it as `.env`.
+- Run five rate-limit tests on a frozen limiter clock, so they no longer fail on a slow or heavily loaded machine.
 
 ## 20261016.3
 
