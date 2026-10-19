@@ -12,7 +12,7 @@ Capture the visible error message/code, the affected task, and the UI/Garage ver
 | Object-key configuration error | Set both S3 access key ID and secret, or neither |
 | Authentication-disabled setting | Remove `AUTH_DISABLED`, `DISABLE_AUTH`, and `GARAGE_UI_NO_AUTH` entirely |
 | Data directory not writable | Make `DATA_DIR` or its mounted volume writable by the runtime user |
-| `data directory … is writable by other users` (or `by its group`) at startup | The UI could not restrict `DATA_DIR` to `0700`, and other accounts could replace its database or session key. Give the directory to the runtime user (UID 65532 in the image), or remove group and other write permission (`chmod go-w`). A group-writable directory is accepted only when its group is the runtime user's effective (primary) group, as with a Kubernetes `fsGroup` equal to `runAsGroup`; a supplementary group does not count. See [The data directory is refused at startup](#the-data-directory-is-refused-at-startup) |
+| `data directory … is writable by other users` (or `by its group`) at startup | The UI could not restrict `DATA_DIR` to `0700`, and other accounts could replace its database or session key. Give the directory to the runtime user (UID 65532 in the image), or remove group and other write permission (`chmod go-w`). A group-writable directory is accepted only when its group is the runtime user's effective (primary) group, as with a Kubernetes `fsGroup` equal to `runAsGroup`; a supplementary group does not count. A Kubernetes volume created with mode `0777`, for example by local-path or NFS provisioners, is refused even with the Helm chart. See [The data directory is refused at startup](#the-data-directory-is-refused-at-startup) |
 | Listener error | `HOST` must be an IP address, `PORT` must be a TCP port from 1 to 65535 (default 3909), and that port must be available |
 
 The local health probe is:
@@ -40,7 +40,36 @@ Check the directory and the identity the UI runs as:
 stat -c 'owner=%u group=%g mode=%a' /path/to/data
 ```
 
-The image and the Helm chart run as UID 65532 with primary group 65532 (`runAsUser`, `runAsGroup`, and `fsGroup` are all 65532 in the chart). With Docker, the identity is the image user or `--user UID:GID`. In Kubernetes, it is the pod's `runAsUser` and `runAsGroup`. The directory is refused if it is not owned by that UID, or has the sticky bit (an odd first digit in a four-digit mode, such as `1777`), and it is writable by others or by a group other than that GID.
+The image and the Helm chart run as UID 65532 with primary group 65532 (`runAsUser`, `runAsGroup`, and `fsGroup` are all 65532 in the chart). With Docker, the identity is the image user or `--user UID:GID`. In Kubernetes, it is the pod's `runAsUser` and `runAsGroup`. The directory is refused if it is not owned by that UID, or has the sticky bit (an odd first digit in a four-digit mode, such as `1777`), or changing its mode fails, and it is writable by others or by a group other than that GID.
+
+### Kubernetes volumes
+
+With the Helm chart, `/data` is a PersistentVolumeClaim from the cluster's default StorageClass, so whether the chart's defaults start depends on how that StorageClass creates volumes. Kubernetes applies `fsGroup` only to some volume types, and then only adds group 65532, group read and write, and the setgid bit; it never removes write permission for others.
+
+- Block storage whose file system root is root-owned mode `0755`, with `fsGroup` applied, becomes `root:65532 2775` and starts (with a warning that the directory is left unchanged).
+- local-path-provisioner, the default StorageClass `local-path` in k3s, creates each volume as root with mode `0777`. Its default `hostPath` volume type gets no `fsGroup`, so the pod sees `root:root 0777`; the `local` type, which k3s selects, becomes `root:65532 2777`. Both are refused.
+- nfs-subdir-external-provisioner creates directories with mode `0777`, and NFS volumes get no `fsGroup`, so they are refused unless the directory belongs to UID 65532. Other NFS storage may be refused too, depending on the export's ownership and squashing.
+
+Check a running or failed pod's volume on the node with `stat` on the volume path: local-path volumes are under `/opt/local-path-provisioner`, or `/var/lib/rancher/k3s/storage` in k3s. Fix it in one of two ways:
+
+- On the node or NFS server, give the directory to the runtime user: `sudo chown 65532:65532 <volume path> && sudo chmod 0700 <volume path>`. This lasts as long as the volume.
+- Add an init container that runs as root and does the same before the UI starts. The chart has no setting for init containers, so add it with a Helm post-renderer or a kustomize patch on the Deployment; a `kubectl patch` is undone by the next `helm upgrade`. Pod Security Admission at the `restricted` level rejects a container that runs as root, and with NFS `root_squash` the `chown` fails, so fix the directory on the server instead in those cases.
+
+```yaml
+# Add under spec.template.spec of the Deployment named after the Helm release.
+initContainers:
+  - name: data-permissions
+    image: busybox:1.37
+    command: ["sh", "-c", "chown 65532:65532 /data && chmod 0700 /data"]
+    securityContext:
+      runAsUser: 0
+      runAsNonRoot: false   # the pod sets runAsNonRoot: true
+    volumeMounts:
+      - name: data
+        mountPath: /data
+```
+
+On a volume that gets `fsGroup`, Kubernetes adds group bits again when the pod next starts; the directory then still belongs to 65532, so the UI changes it back to `0700` itself.
 
 Fix it in one of these ways:
 
@@ -53,7 +82,7 @@ sudo chmod 0700 /path/to/data
 sudo chmod go-w /path/to/data
 ```
 
-- Kubernetes: set `fsGroup` to the same value as `runAsGroup`, as the Helm chart does, or remove group write permission from the volume.
+- Kubernetes: set `fsGroup` to the same value as `runAsGroup`, as the Helm chart does, or remove group write permission from the volume. A volume that others can write to, such as a local-path or NFS volume with mode `0777`, needs one of the fixes in [Kubernetes volumes](#kubernetes-volumes).
 - Docker with a shared group: run with `--user UID:GID`, using the directory's group as the primary group, instead of adding it with `--group-add`.
 - Do not use a shared directory such as `/tmp` as `DATA_DIR`. Use a directory dedicated to the UI instead of changing the mode of a shared one.
 
