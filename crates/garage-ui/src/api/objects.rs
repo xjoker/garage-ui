@@ -31,6 +31,9 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+// The fixture-backed preview and download routes and the upload stub below exist only in test
+// builds. Release binaries serve objects through the bucket routes.
+#[cfg(test)]
 #[derive(Deserialize)]
 pub(crate) struct NameQuery {
     name: String,
@@ -43,6 +46,7 @@ pub(crate) struct ShareBody {
     key: String,
 }
 
+#[cfg(test)]
 pub(crate) async fn preview_object(
     State(app): State<App>,
     Authed(current): Authed,
@@ -51,6 +55,7 @@ pub(crate) async fn preview_object(
     object_body(&app, &current, &query.name, ObjectBody::Preview).await
 }
 
+#[cfg(test)]
 pub(crate) async fn download_object(
     State(app): State<App>,
     Authed(current): Authed,
@@ -59,11 +64,13 @@ pub(crate) async fn download_object(
     object_body(&app, &current, &query.name, ObjectBody::Download).await
 }
 
+#[cfg(test)]
 enum ObjectBody {
     Preview,
     Download,
 }
 
+#[cfg(test)]
 async fn object_body(
     app: &App,
     current: &Current,
@@ -672,12 +679,15 @@ fn upload_length(headers: &HeaderMap, limit: u64) -> Result<u64, ApiError> {
     Ok(length)
 }
 
+#[cfg(test)]
 pub(crate) async fn upload_object(
     State(app): State<App>,
     Authed(current): Authed,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    require(&current.user, Op::WriteObjects)?;
+    if let Err(error) = require(&current.user, Op::WriteObjects) {
+        return reject_object(&app, &current, "denied", "POST", "/api/objects", "", error).await;
+    }
     tenant::deny(&current.user)?;
     upload_length(&headers, app.settings.max_upload_bytes)?;
     Err(ApiError::not_implemented(
@@ -712,7 +722,7 @@ async fn audit_object(
     .await
 }
 
-async fn reject_object<T>(
+pub(crate) async fn reject_object<T>(
     app: &App,
     current: &Current,
     result: &'static str,
@@ -1199,7 +1209,7 @@ fn delete_keys(body: &[u8]) -> Result<Vec<String>, ApiError> {
 }
 
 pub(crate) fn routes() -> Router<App> {
-    Router::new()
+    let routes = Router::new()
         .route("/api/buckets/{id}/objects", get(list_bucket_objects))
         .route(
             "/api/buckets/{id}/objects:delete",
@@ -1211,14 +1221,17 @@ pub(crate) fn routes() -> Router<App> {
         )
         .route("/api/buckets/{id}/search", get(search_bucket_objects))
         .route("/api/buckets/{id}/inspect", get(inspect_object))
-        .route("/api/objects/preview", get(preview_object))
-        .route("/api/objects/download", get(download_object))
         .route(
             "/api/buckets/{id}/archive-token",
             post(create_archive_token),
         )
         .route("/api/buckets/{id}/archive", get(download_archive))
-        .route("/api/share", post(share))
+        .route("/api/share", post(share));
+    #[cfg(test)]
+    let routes = routes
+        .route("/api/objects/preview", get(preview_object))
+        .route("/api/objects/download", get(download_object));
+    routes
 }
 #[cfg(test)]
 mod tests {

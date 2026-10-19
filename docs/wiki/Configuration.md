@@ -13,7 +13,7 @@ Restart the UI after changing server configuration. Browser **Settings** control
 | `API_ADMIN_KEY_FILE` | Unset | File containing the Garage admin token; takes priority over the token variable |
 | `GARAGE_ADMIN_TOKEN` | Unset | Garage admin token when no token file is configured |
 | `METRICS_TOKEN_FILE` | Unset | Metrics token file; takes priority over the token variable |
-| `GARAGE_METRICS_TOKEN` | Unset | Token for Garage metrics |
+| `GARAGE_METRICS_TOKEN` | Unset | Token for Garage metrics. The UI's own `/metrics` endpoint also accepts it as `Authorization: Bearer <token>`; without it, `/metrics` needs an administrator or viewer session, and a viewer bound to an access key receives `403` |
 | `GARAGE_ADMIN_CONNECT_TIMEOUT_SECS` | `5` | Connection timeout |
 | `GARAGE_ADMIN_TIMEOUT_SECS` | `30` | Admin request timeout |
 | `GARAGE_TLS_CA_FILE` | Unset | PEM CA file for Garage TLS connections |
@@ -49,7 +49,7 @@ On Garage v2.3.0 and v2.4.1, explicitly set `S3_ENDPOINT_URL` and `S3_REGION`; t
 | `HOST` | `127.0.0.1` | IP address to bind; port is fixed at 3909. The container image sets `0.0.0.0` |
 | `GARAGE_HEADER_READ_TIMEOUT_SECS` | `10` | HTTP/1 request-header read timeout in seconds |
 | `GARAGE_IDLE_TIMEOUT_SECS` | `60` | Connection inactivity timeout in seconds; successful reads or writes reset it |
-| `DATA_DIR` | `./data` | Writable directory for `garage-ui.sqlite` and generated `session.key` |
+| `DATA_DIR` | `./data` | Writable directory for `garage-ui.sqlite` and generated `session.key`. The SQLite database and its `-wal`/`-shm` files are kept at mode `0600` |
 | `AUDIT_RETENTION_DAYS` | `90` | Automatic audit retention in days; accepts integers from 1 through the signed 64-bit maximum, otherwise uses 90 |
 | `BASE_PATH` | Empty | URL prefix, such as `/garage-ui`; affects routes, assets, and cookie path |
 | `COOKIE_SECURE` | `true` | Accepts `true` or `false`; keep `true` for HTTPS |

@@ -2,6 +2,7 @@ import { Button, Checkbox, Dialog, Select, Table, TextField } from "@radix-ui/th
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { ConfirmDialog } from "./confirm";
 import { isGarageDown } from "./garageDown";
 import { copy, fill, translate } from "./i18n";
 
@@ -276,6 +277,7 @@ function AccountRow({ account, self }: { account: Account; self: boolean }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const shown = permissionBits(account.role, account.can_download, account.can_share);
   const patch = useMutation({
     mutationFn: (body: AccountPatch) =>
@@ -440,7 +442,7 @@ function AccountRow({ account, self }: { account: Account; self: boolean }) {
                       return;
                     }
                     setError(null);
-                    remove.mutate();
+                    setConfirmDelete(true);
                   }}
                 >
                   {remove.isPending ? fill(copy("ui.deleting"), { username: account.username }) : copy("ui.delete.2")}
@@ -451,6 +453,21 @@ function AccountRow({ account, self }: { account: Account; self: boolean }) {
             <Button size="2" variant="soft" color="gray" type="button" disabled={busy} onClick={() => setOpen(false)}>{translate("Close")}</Button>
             </Dialog.Content>
           </Dialog.Root>
+          {confirmDelete ? (
+            <ConfirmDialog
+              action="delete-user"
+              name={account.username}
+              consequence={fill(copy("ui.delete.user.consequence"), { username: account.username })}
+              onCancel={() => setConfirmDelete(false)}
+              onConfirm={() => {
+                setConfirmDelete(false);
+                if (self || busy) {
+                  return;
+                }
+                remove.mutate();
+              }}
+            />
+          ) : null}
         </DataCell>
       </Table.Row>
       {error && !open ? (

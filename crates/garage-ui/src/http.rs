@@ -141,8 +141,8 @@ async fn metrics(
     axum::extract::State(app): axum::extract::State<App>,
     headers: HeaderMap,
 ) -> Response {
-    if !metrics_allowed(&app, &headers).await {
-        return crate::error::ApiError::unauthorized().into_response();
+    if let Err(refusal) = metrics_allowed(&app, &headers).await {
+        return refusal.into_response();
     }
     Response::builder()
         .header(
@@ -153,16 +153,24 @@ async fn metrics(
         .unwrap()
 }
 
-async fn metrics_allowed(app: &App, headers: &HeaderMap) -> bool {
+// The metrics token, or a session whose role may view metrics, as `/api/metrics` requires.
+// A signed-in account without `ViewMetrics`, such as a tenant, gets 403 rather than 401.
+async fn metrics_allowed(app: &App, headers: &HeaderMap) -> Result<(), crate::error::ApiError> {
     if let Some(expected) = app.settings.metrics_token.as_deref()
         && let Some(presented) = bearer(headers)
         && crate::util::ct_eq(presented, expected)
     {
-        return true;
+        return Ok(());
     }
-    crate::session::authenticate(app, headers, "127.0.0.1")
-        .await
-        .is_ok()
+    let current = crate::session::authenticate(app, headers, "127.0.0.1").await?;
+    if crate::access::permits(current.user.actor(), crate::access::Op::ViewMetrics) {
+        Ok(())
+    } else {
+        Err(crate::error::ApiError::forbidden(
+            "forbidden",
+            "Not allowed",
+        ))
+    }
 }
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {

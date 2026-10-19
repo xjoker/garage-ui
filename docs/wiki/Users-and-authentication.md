@@ -8,7 +8,7 @@ Enter **Username** and **Password**, then choose **Log in**. The browser receive
 
 In **Settings → Change password**, enter **Current password** and **New password**, then choose **Change password**. A successful change displays **Password updated** and replaces the current login session. Other sessions for the account are invalidated. Use **Log out** when finished on a shared device.
 
-Sessions normally expire after 24 hours absolute age or two hours idle time. A login screen after expiry is expected; sign in again. The operator can configure both durations.
+Sessions normally expire after 24 hours absolute age or two hours idle time. A login screen after expiry is expected; sign in again. The operator can configure both durations. The UI database stores only a SHA-256 digest of each session cookie, and expired sessions are deleted at startup and every five minutes.
 
 ## Choose roles and content permissions
 
@@ -30,7 +30,7 @@ A viewer can also be bound to one Garage access key through the user API (`acces
 3. Use the user's **Edit** action to change **Role**, **Download**, **Share**, or **Disabled**. Review the saved state before leaving.
 4. To reset another account, enter its new password and choose **Reset password**. Give the password to the user through a secure channel.
 
-To remove an account, open its **Edit** dialog and choose **Delete**. Deletion starts immediately without a separate confirmation; existing sessions for that account lose access.
+To remove an account, open its **Edit** dialog, choose **Delete**, and then choose **Confirm** in the confirmation dialog. **Cancel** or Escape keeps the account. After confirmation, existing sessions for that account lose access.
 
 Usernames are unique without regard to ASCII case, 1–64 characters long, and cannot contain spaces, control characters, or semicolons. Passwords need at least 10 characters and no more than 72 UTF-8 bytes; they cannot be blank. Use a long unique password within that limit.
 

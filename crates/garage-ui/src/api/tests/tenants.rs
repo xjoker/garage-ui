@@ -686,6 +686,68 @@
         assert_eq!(delete.reason, "viewer_read_only");
     }
 
+    // docs/security.md 3.20: every viewer_read_only refusal is audited, one row per request.
+    #[tokio::test]
+    async fn every_viewer_read_only_refusal_writes_one_audit_row() {
+        let env = tenant_env(false, false).await;
+        let mut calls: Vec<(&str, &str, &str, Request<Body>)> = Vec::new();
+        let kinds = [
+            ("PUT", "/api/buckets/b1/object", "b1/up.txt"),
+            ("DELETE", "/api/buckets/b1/object", "b1/a.txt"),
+            ("DELETE", "/api/buckets/b1/object", "b1/docs/"),
+            ("POST", "/api/buckets/b1/objects:delete", "b1"),
+            ("DELETE", "/api/buckets/b1/multipart", "b1"),
+            ("DELETE", "/api/buckets/b1/multipart", "b1"),
+        ];
+        for ((method, path, target), call) in kinds
+            .into_iter()
+            .zip(tenant_change_calls(&env.tenant, "b1"))
+        {
+            calls.push((method, path, target, call));
+        }
+        calls.push((
+            "POST",
+            "/api/objects",
+            "",
+            Request::builder()
+                .method("POST")
+                .uri("/api/objects")
+                .header("cookie", cookie_header(&env.tenant))
+                .header("x-csrf-token", &env.tenant.csrf)
+                .header("content-length", "5")
+                .body(Body::from("hello"))
+                .unwrap(),
+        ));
+        for (method, path, target, call) in calls {
+            let label = format!("{} {}", call.method(), call.uri());
+            let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit")
+                .fetch_one(&env.app.db)
+                .await
+                .unwrap();
+            let response = exchange(&env.app, call).await;
+            assert_eq!(code_of(&response.body), "viewer_read_only", "{label}");
+            let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit")
+                .fetch_one(&env.app.db)
+                .await
+                .unwrap();
+            assert_eq!(after, before + 1, "{label}: one audit row per refusal");
+            let rows = crate::db::recent_audit(&env.app.db).await.unwrap();
+            let row = &rows[0];
+            assert_eq!(
+                (row.result.as_str(), row.reason.as_str(), row.status),
+                ("denied", "viewer_read_only", 403),
+                "{label}"
+            );
+            assert_eq!(
+                (row.method.as_str(), row.path.as_str(), row.target.as_str()),
+                (method, path, target),
+                "{label}"
+            );
+            assert_eq!(row.username, "Tess", "{label}");
+        }
+        assert!(env.s3.seen().is_empty(), "{:?}", env.s3.lines());
+    }
+
     #[tokio::test]
     async fn a_viewer_bound_to_a_writable_key_still_reads_with_that_key() {
         let env = tenant_env(false, false).await;
