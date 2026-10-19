@@ -546,4 +546,6 @@ export const zh = {
   "ux.scope.filter": "筛选权限范围",
   "ux.scope.selected": "已选择 {count} 项",
   "ux.scope.no.matches": "没有匹配的权限范围。",
+  "error.viewer.read.only": "viewer 账号是只读的。绑定到此账号的访问密钥不能用于上传、修改或删除对象。",
+  "error.key.exceeds.role": "viewer 只能绑定只读密钥。此密钥至少在一个存储桶上有写入或所有者权限。",
 } as const satisfies Record<CopyKey, string>;

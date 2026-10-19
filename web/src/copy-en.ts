@@ -544,6 +544,8 @@ export const en = {
   "ux.scope.filter": "Filter scope",
   "ux.scope.selected": "{count} selected",
   "ux.scope.no.matches": "No matching scopes.",
+  "error.viewer.read.only": "Viewer accounts are read-only. The access key bound to this account cannot be used to upload, change, or delete objects.",
+  "error.key.exceeds.role": "A viewer can be bound only to a read-only key. This key has write or owner permission on at least one bucket.",
 } as const;
 
 export type CopyKey = keyof typeof en;
