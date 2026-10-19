@@ -318,14 +318,15 @@ export function UploadPanel({
         () => finish(row.id, "done", targetBucket),
         (error: unknown) => {
           if (!isAbort(error)) {
-            finish(row.id, "failed", targetBucket);
+            // ApiError carries the localized refusal (viewer_read_only, key_exceeds_role).
+            finish(row.id, "failed", targetBucket, error instanceof Error ? error.message : copy("ui.failed"));
           }
         },
       );
     }
   }
 
-  function finish(id: number, kind: "done" | "failed", targetBucket: string) {
+  function finish(id: number, kind: "done" | "failed", targetBucket: string, message?: string) {
     if (!mounted.current || bucketRef.current !== targetBucket) return;
     abortRef.current.delete(id);
     const row = rowsRef.current.find((item) => item.id === id);
@@ -334,7 +335,7 @@ export function UploadPanel({
     }
     commit(
       rowsRef.current.map((item) =>
-        item.id === id ? { ...item, phase: { kind } } : item,
+        item.id === id ? { ...item, phase: kind === "failed" ? { kind, message } : { kind } } : item,
       ),
     );
     if (kind === "done") {

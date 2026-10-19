@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render as renderTree, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { LanguageProvider } from "./i18n";
 import { hashForObjects } from "./Nav";
 import { Objects } from "./Objects";
 import { UploadPanel } from "./UploadPanel";
@@ -56,6 +57,12 @@ class FakeRequest {
 
   fail() {
     this.status = 500;
+    this.onload?.();
+  }
+
+  refuse(status: number, code: string, message: string) {
+    this.status = status;
+    this.responseText = JSON.stringify({ code, message });
     this.onload?.();
   }
 }
@@ -316,6 +323,47 @@ test("refetches bucket objects after a successful upload", async () => {
   expect(row("done.txt").textContent).toContain("Done");
   expect(invalidate).toHaveBeenCalledTimes(5);
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["bucket-objects", "bkt-9"] });
+});
+
+test("shows why an upload failed in the row", async () => {
+  render(<UploadPanel bucketId="bkt-1" existingKeys={[]} />);
+  choose(["ro.txt", "bound.txt", "boom.txt"]);
+  await act(async () => {});
+  await act(async () => {
+    FakeRequest.sent[0]?.refuse(403, "viewer_read_only", "server text");
+    FakeRequest.sent[1]?.refuse(403, "key_exceeds_role", "server text");
+    FakeRequest.sent[2]?.fail();
+  });
+  expect(within(row("ro.txt")).getByRole("alert").textContent).toBe(
+    "Viewer accounts are read-only. The access key bound to this account cannot be used to upload, change, or delete objects.",
+  );
+  expect(within(row("bound.txt")).getByRole("alert").textContent).toBe(
+    "A viewer can be bound only to a read-only key. This key has write or owner permission on at least one bucket.",
+  );
+  expect(within(row("boom.txt")).getByRole("alert").textContent).toBe("request failed (500)");
+  expect(row("ro.txt").textContent).toContain("Failed");
+  fireEvent.click(within(row("ro.txt")).getByRole("button", { name: "Retry" }));
+  await act(async () => {});
+  expect(within(row("ro.txt")).queryByRole("alert")).toBeNull();
+});
+
+test("shows the upload refusal in the chosen language", async () => {
+  localStorage.setItem("garage-ui-language", "zh-CN");
+  try {
+    render(<LanguageProvider><UploadPanel bucketId="bkt-1" existingKeys={[]} /></LanguageProvider>);
+    fireEvent.change(screen.getByLabelText("选择文件"), {
+      target: { files: [new File(["x"], "ro.txt", { type: "text/plain" })] },
+    });
+    await act(async () => {});
+    await act(async () => {
+      FakeRequest.sent[0]?.refuse(403, "viewer_read_only", "server text");
+    });
+    expect(within(row("ro.txt")).getByRole("alert").textContent).toBe(
+      "viewer 账号是只读的。绑定到此账号的访问密钥不能用于上传、修改或删除对象。",
+    );
+  } finally {
+    localStorage.removeItem("garage-ui-language");
+  }
 });
 
 test("does not refetch bucket objects after a failed upload", async () => {
