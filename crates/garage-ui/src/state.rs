@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,6 +12,8 @@ use crate::limit::{self, Limits};
 use crate::password;
 use crate::util::{self, hex_encode};
 
+// In-memory objects behind the test-only preview and download routes; not in release builds.
+#[cfg(test)]
 #[derive(Clone)]
 pub struct Fixture {
     pub content_type: String,
@@ -48,6 +51,7 @@ pub struct App {
     pub limits: Arc<Limits>,
     pub dummy_hash: Arc<String>,
     pub http: reqwest::Client,
+    #[cfg(test)]
     pub fixtures: Arc<std::sync::Mutex<HashMap<String, Fixture>>>,
     pub write: Arc<Mutex<()>>,
     pub upload_buffer: Arc<Semaphore>,
@@ -421,6 +425,7 @@ pub async fn boot_with(loaded: Loaded, quota: governor::Quota) -> anyhow::Result
         limits: Arc::new(limits),
         dummy_hash: Arc::new(dummy_hash),
         http,
+        #[cfg(test)]
         fixtures: Arc::new(std::sync::Mutex::new(HashMap::new())),
         write: Arc::new(Mutex::new(())),
         // Uploads above 64 MiB wait on this semaphore. There is no second queue.

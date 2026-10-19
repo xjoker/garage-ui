@@ -35,7 +35,7 @@ Acceptance: After the browser cancels a download, the server's request to S3 is 
 ## 6.5 Observability
 
 - Structured logs (JSON), with a request ID. The log level is configurable. Do not record sensitive information. Write only to stdout/stderr.
-- This project's own `/metrics` (protected by authentication, or by a separate token) exposes request count, a latency histogram, the Garage call error count, and the in-flight upload count.
+- This project's own `/metrics` (protected by the separate metrics token, or by a session whose role has `ViewMetrics`; a tenant session receives 403) exposes request count, a latency histogram, the Garage call error count, and the in-flight upload count.
 - `/healthz` (liveness) and `/readyz` (readiness: the database is available and Garage is reachable).
 - The binary provides a `-health` subcommand for the container health check.
 

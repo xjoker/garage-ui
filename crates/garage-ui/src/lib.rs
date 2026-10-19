@@ -58,6 +58,24 @@ pub fn start_audit_retention(pool: sqlx::SqlitePool) {
     }));
 }
 
+// Expired sessions are also deleted when presented; this removes the ones never presented again.
+const SESSION_CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
+
+pub fn start_session_cleanup(app: state::App) {
+    drop(tokio::spawn(async move {
+        let idle = i64::try_from(app.settings.session_idle.as_secs()).unwrap_or(i64::MAX);
+        loop {
+            // A database error can name the file path. Log the deleted count only.
+            match db::delete_stale_sessions(&app.db, util::now_secs(), idle, &app.key_id).await {
+                Ok(0) => {}
+                Ok(deleted) => tracing::info!(deleted, "deleted expired sessions"),
+                Err(_) => tracing::warn!("could not delete expired sessions"),
+            }
+            tokio::time::sleep(SESSION_CLEANUP_INTERVAL).await;
+        }
+    }));
+}
+
 pub fn start_limiter_cleanup(limits: std::sync::Arc<limit::Limits>, pool: sqlx::SqlitePool) {
     drop(tokio::spawn(async move {
         loop {

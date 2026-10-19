@@ -4,7 +4,7 @@ use std::time::Duration;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
 use sqlx::{ConnectOptions, Row, SqlitePool};
 
-use crate::util::now_secs;
+use crate::util::{hex_encode, now_secs};
 
 #[derive(Clone, Debug)]
 pub struct User {
@@ -34,6 +34,8 @@ impl User {
     }
 }
 
+// `id` is the session token the browser holds in its cookie. The sessions table stores only
+// `session_digest(id)`, so a copy of the database does not contain a usable cookie value.
 #[derive(Clone, Debug)]
 pub struct Session {
     pub id: String,
@@ -68,7 +70,68 @@ pub struct AuditEvent<'a> {
     pub status: i64,
 }
 
+/// SHA-256 of a session token, in lowercase hex: the value stored in `sessions.id`.
+pub fn session_digest(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex_encode(&Sha256::digest(token.as_bytes()))
+}
+
+// The database, its WAL and shared-memory files, and a rollback journal if one is left over.
+const DATABASE_SUFFIXES: [&str; 4] = ["", "-wal", "-shm", "-journal"];
+
+// A file that cannot be changed, for example one owned by another user, is reported and left
+// as it is; it does not stop startup.
+#[cfg(unix)]
+fn restrict_database_files(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    for suffix in DATABASE_SUFFIXES {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        let file = std::path::PathBuf::from(name);
+        let Ok(meta) = std::fs::symlink_metadata(&file) else {
+            continue;
+        };
+        if !meta.file_type().is_file() || meta.permissions().mode() & 0o777 == 0o600 {
+            continue;
+        }
+        if std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).is_err() {
+            tracing::warn!(file = %file.display(), "could not restrict database file permissions to 0600");
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_database_files(_path: &Path) {}
+
+// SQLite creates the WAL and shared-memory files with the database file's mode, so the
+// database is created as 0600 before SQLite opens it. Files left by an older version are
+// tightened to 0600 before and after the pool connects.
+#[cfg(unix)]
+fn create_private_database(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(_) => Err(anyhow::anyhow!(
+            "data directory is not writable: {}",
+            path.display()
+        )),
+    }
+}
+
+#[cfg(not(unix))]
+fn create_private_database(_path: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
 pub async fn open(path: &Path) -> anyhow::Result<SqlitePool> {
+    create_private_database(path)?;
+    restrict_database_files(path);
     let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(true)
@@ -82,7 +145,36 @@ pub async fn open(path: &Path) -> anyhow::Result<SqlitePool> {
         .await
         .map_err(|_| anyhow::anyhow!("数据目录不可写: {}", path.display()))?;
     migrate(&pool).await?;
+    restrict_database_files(path);
     Ok(pool)
+}
+
+// `PRAGMA user_version` from which `sessions.id` holds `session_digest(token)`.
+const SESSION_DIGEST_VERSION: i64 = 1;
+
+// Rows written by an older version hold the cookie value itself. They are deleted rather than
+// rehashed: a token already exposed in a database file or backup must not stay valid.
+async fn migrate_session_digests(pool: &SqlitePool) -> anyhow::Result<()> {
+    let mut transaction = pool.begin().await?;
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *transaction)
+        .await?;
+    if version >= SESSION_DIGEST_VERSION {
+        transaction.rollback().await?;
+        return Ok(());
+    }
+    let deleted = sqlx::query("DELETE FROM sessions")
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+    sqlx::query("PRAGMA user_version = 1")
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    if deleted > 0 {
+        tracing::info!(deleted, "signed out sessions stored before session digests");
+    }
+    Ok(())
 }
 
 async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -102,7 +194,7 @@ async fn migrate(pool: &SqlitePool) -> anyhow::Result<()> {
             return Err(error.into());
         }
     }
-    Ok(())
+    migrate_session_digests(pool).await
 }
 
 fn duplicate_column(error: &sqlx::Error) -> bool {
@@ -337,7 +429,7 @@ pub async fn change_user_password(
     .bind(password_hash)
     .bind(id)
     .bind(expected_password_hash)
-    .bind(current_session_id)
+    .bind(session_digest(current_session_id))
     .bind(&replacement.key_id)
     .bind(replacement.last_seen_at)
     .bind(replacement.last_seen_at.saturating_sub(idle_seconds))
@@ -355,7 +447,7 @@ pub async fn change_user_password(
         "INSERT INTO sessions (id, user_id, csrf_token, key_id, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(&replacement.id)
+    .bind(session_digest(&replacement.id))
     .bind(id)
     .bind(&replacement.csrf_token)
     .bind(&replacement.key_id)
@@ -389,7 +481,7 @@ pub async fn insert_login_session(
          SELECT ?, id, ?, ?, ?, ?, ? FROM users
          WHERE id = ? AND username = ? AND password_hash = ? AND disabled = 0",
     )
-    .bind(&replacement.id)
+    .bind(session_digest(&replacement.id))
     .bind(&replacement.csrf_token)
     .bind(&replacement.key_id)
     .bind(replacement.last_seen_at)
@@ -407,7 +499,7 @@ pub async fn insert_login_session(
     }
     if let Some(old) = replace_id {
         sqlx::query("DELETE FROM sessions WHERE id = ?")
-            .bind(old)
+            .bind(session_digest(old))
             .execute(&mut *transaction)
             .await?;
     }
@@ -436,7 +528,7 @@ pub async fn insert_session(
         "INSERT INTO sessions (id, user_id, csrf_token, key_id, created_at, last_seen_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(id)
+    .bind(session_digest(id))
     .bind(user_id)
     .bind(csrf_token)
     .bind(key_id)
@@ -448,15 +540,16 @@ pub async fn insert_session(
     Ok(())
 }
 
+/// Looks up the session for a cookie token. The returned `id` is that token, not the stored digest.
 pub async fn load_session(pool: &SqlitePool, id: &str) -> Result<Option<Session>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT id, user_id, csrf_token, key_id, last_seen_at, expires_at FROM sessions WHERE id = ?",
+        "SELECT user_id, csrf_token, key_id, last_seen_at, expires_at FROM sessions WHERE id = ?",
     )
-    .bind(id)
+    .bind(session_digest(id))
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|row| Session {
-        id: row.get("id"),
+        id: id.to_string(),
         user_id: row.get("user_id"),
         csrf_token: row.get("csrf_token"),
         key_id: row.get("key_id"),
@@ -468,7 +561,7 @@ pub async fn load_session(pool: &SqlitePool, id: &str) -> Result<Option<Session>
 pub async fn touch_session(pool: &SqlitePool, id: &str, now: i64) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
         .bind(now)
-        .bind(id)
+        .bind(session_digest(id))
         .execute(pool)
         .await?;
     Ok(())
@@ -476,7 +569,7 @@ pub async fn touch_session(pool: &SqlitePool, id: &str, now: i64) -> Result<(), 
 
 pub async fn delete_session(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM sessions WHERE id = ?")
-        .bind(id)
+        .bind(session_digest(id))
         .execute(pool)
         .await?;
     Ok(())
@@ -488,6 +581,25 @@ pub async fn delete_user_sessions(pool: &SqlitePool, user_id: i64) -> Result<(),
         .execute(pool)
         .await?;
     Ok(())
+}
+
+/// Deletes every session that `session::authenticate` would reject by time or session key: past
+/// its absolute expiry, idle for longer than `idle_seconds`, or issued under another session key.
+pub async fn delete_stale_sessions(
+    pool: &SqlitePool,
+    now: i64,
+    idle_seconds: i64,
+    key_id: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM sessions WHERE expires_at <= ? OR last_seen_at < ? OR key_id != ?",
+    )
+    .bind(now)
+    .bind(now.saturating_sub(idle_seconds))
+    .bind(key_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 pub async fn set_bucket_key<'e>(

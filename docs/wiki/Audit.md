@@ -26,7 +26,7 @@ A summary record has these fields:
 | Field | Value |
 | --- | --- |
 | username | Empty. The usernames of the condensed records, including well-formed usernames in condensed 429 records, are not kept. |
-| ip | The address the records were counted under: an IPv4 address, an IPv6 network such as `2001:db8:9:9::/64`, or `*` for counts folded together after 4096 distinct (address, path) counters |
+| ip | The address the records were counted under: an IPv4 address, an IPv6 network such as `2001:db8:9:9::/64`, or `*` for counts folded together after 4096 distinct (address, path) counters. Folded counts keep their path, so the key is (`*`, path). Each summary write, about once a minute, empties the whole counter table, so later addresses get their own counters again |
 | result, reason | `rate_limited`, `audit_suppressed` |
 | method, path | `POST` and the request path, `/api/auth/login` or `/api/setup` |
 | target | `suppressed=<count>`, the number of records that were not written |

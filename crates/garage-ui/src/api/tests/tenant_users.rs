@@ -3,6 +3,22 @@
     // Keys that grant more than a viewer may hold: `write` on one bucket, or `owner` alone.
     const WRITE_KEY: &str = "GKwriter";
     const OWNER_KEY: &str = "GKowner";
+    // GetKeyInfo replies that say nothing about the key: a server error, a 200 that is not
+    // JSON, JSON of the wrong shape, a body cut short, and a reply over the 1 MiB read limit.
+    const FAILING_KEYS: [&str; 5] = [
+        "GKerror",
+        "GKgarbled",
+        "GKshapeless",
+        "GKtruncated",
+        "GKoversized",
+    ];
+
+    fn raw_http(status: &str, body: &str, length: usize) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}"
+        )
+        .into_bytes()
+    }
 
     // GetKeyInfo for a key that holds `read` on b1 and b2, plus the given grants on b1.
     fn bound_key_info(id: &str, write: bool, owner: bool) -> Value {
@@ -41,6 +57,22 @@
                     TENANT_KEY | OTHER_KEY => bound_key_info(key, false, false),
                     WRITE_KEY => bound_key_info(key, true, false),
                     OWNER_KEY => bound_key_info(key, false, true),
+                    "GKerror" => {
+                        return json_http(
+                            "500 Internal Server Error",
+                            &json!({ "code": "InternalError", "message": "boom" }),
+                        );
+                    }
+                    "GKgarbled" => return raw_http("200 OK", "<html>proxy</html>", 18),
+                    "GKshapeless" => {
+                        return json_http("200 OK", &json!({ "buckets": "everything" }));
+                    }
+                    "GKtruncated" => return raw_http("200 OK", "{\"buckets\": [", 4096),
+                    "GKoversized" => {
+                        // Valid JSON granting nothing, padded past the limit.
+                        let body = format!("{{\"buckets\": []{}}}", " ".repeat(1024 * 1024));
+                        return raw_http("200 OK", &body, body.len());
+                    }
                     _ => {
                         return json_http(
                             "404 Not Found",
@@ -303,6 +335,44 @@
                 .unwrap()
                 .is_none()
         );
+    }
+
+    // When GetKeyInfo does not answer usably, the key's permissions are unknown: binding fails
+    // closed with 502 `garage_unavailable` and stores nothing, on create and on change.
+    #[tokio::test]
+    async fn a_key_whose_permissions_cannot_be_read_is_refused_and_not_stored() {
+        let env = bind_env().await;
+        let plain = create_account(&env, "Plain", json!({})).await;
+        let plain_id = id_of(&plain);
+        let bound = create_account(&env, "Tess", json!({ "access_key_id": TENANT_KEY })).await;
+        assert_eq!(bound.status, StatusCode::CREATED, "{}", bound.body);
+        let bound_id = id_of(&bound);
+        for key in FAILING_KEYS {
+            let name = format!("New-{key}");
+            let created = create_account(&env, &name, json!({ "access_key_id": key })).await;
+            assert_eq!(created.status, StatusCode::BAD_GATEWAY, "{key}: {}", created.body);
+            assert_eq!(code_of(&created.body), "garage_unavailable", "{key}");
+            assert!(
+                crate::db::find_user_by_name(&env.app.db, &name)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "{key}: the account must not be stored"
+            );
+            let patched = patch_account(&env, plain_id, json!({ "access_key_id": key })).await;
+            assert_eq!(patched.status, StatusCode::BAD_GATEWAY, "{key}: {}", patched.body);
+            assert_eq!(stored_key(&env, plain_id).await, None, "{key}");
+            let rebound = patch_account(&env, bound_id, json!({ "access_key_id": key })).await;
+            assert_eq!(rebound.status, StatusCode::BAD_GATEWAY, "{key}: {}", rebound.body);
+            assert_eq!(stored_key(&env, bound_id).await.as_deref(), Some(TENANT_KEY), "{key}");
+        }
+        let lines = env.garage.lines();
+        for key in FAILING_KEYS {
+            assert!(
+                lines.iter().any(|line| line.contains(&format!("GetKeyInfo?id={key}"))),
+                "{key}: {lines:?}"
+            );
+        }
     }
 
     #[tokio::test]

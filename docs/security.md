@@ -106,6 +106,7 @@ Acceptance: Assert `no-store` on the response headers of an object download.
 ## 3.12 Persisted sessions, and invalidation after a password change
 
 - Store sessions in the database (the same SQLite database as the user store). A restart does not drop the login. The store can keep sessions consistent when several replicas share that database (several replicas are P2).
+- Store only the SHA-256 digest of each session ID, never the cookie value. Delete sessions past their absolute or idle expiry, or issued under another session key, at startup and periodically, not only when they are presented. Keep the database file and its `-wal`/`-shm` sidecars at mode 0600.
 - When the password is changed, an administrator resets the password, the user is disabled, the user is deleted, or the role is demoted, delete every other session of that user immediately. When the password is changed, keep the current session and rotate its ID.
 
 Acceptance: Browsers A and B log in as the same account. After A changes the password, B's next request returns 401. After the process restarts, a session that has not expired is still valid.
