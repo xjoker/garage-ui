@@ -574,6 +574,7 @@ fn load_session_key(dir: &Path, material: KeyMaterial) -> anyhow::Result<Vec<u8>
 
 fn read_or_create_key(path: &Path) -> anyhow::Result<Vec<u8>> {
     if path.exists() {
+        restrict_key_file(path);
         let bytes = std::fs::read(path).map_err(|error| {
             anyhow::anyhow!(
                 "failed to read key file: {}: {}",
@@ -602,6 +603,25 @@ fn read_or_create_key(path: &Path) -> anyhow::Result<Vec<u8>> {
     write_private(path, &bytes)?;
     Ok(bytes)
 }
+
+// A key file left readable by others, for example one restored from a backup, is changed to
+// `0600` before it is read. A file that cannot be changed is reported and left as it is.
+#[cfg(unix)]
+fn restrict_key_file(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if !meta.file_type().is_file() || meta.permissions().mode() & 0o777 == 0o600 {
+        return;
+    }
+    if std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).is_err() {
+        tracing::warn!(file = %path.display(), "could not restrict key file permissions to 0600");
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_key_file(_path: &Path) {}
 
 fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;

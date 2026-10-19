@@ -159,6 +159,26 @@ fn an_existing_setgid_data_dir_keeps_setgid() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn an_existing_readable_session_key_is_restricted() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = work_dir("key");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let key: Vec<u8> = (1..=48).collect();
+    let path = data.join("session.key");
+    std::fs::write(&path, &key).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let port = free_port();
+    let mut server = start(&dir, &data, Some(port));
+    wait_ready(&mut server, port);
+    assert_eq!(mode(&path), 0o600);
+    assert_eq!(std::fs::read(&path).unwrap(), key, "the key itself is kept");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // A data directory that other users can write to, and that this process may not change, stops
 // startup before anything is written there. Without root, the only such directory a test can
 // rely on is a shared one owned by another user, like `/tmp` (root-owned, mode 1777). The test
