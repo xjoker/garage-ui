@@ -546,6 +546,8 @@ async fn login_rate_limit_is_per_username_and_writes_audit() {
     let app = state::test_app(&dir).await;
     // Login is closed until the first user exists, so the limiter runs only after setup.
     setup_admin(&app).await;
+    // Freeze the limiter clock: slow bcrypt or a loaded machine must not refill the quota.
+    app.limits.clock().freeze();
     for _ in 0..10 {
         let response = login(&app, "Ada", "wrong horse", None, Some([198, 51, 100, 7])).await;
         assert_eq!(response.status, StatusCode::UNAUTHORIZED);
@@ -557,7 +559,7 @@ async fn login_rate_limit_is_per_username_and_writes_audit() {
     assert!(retry >= 1);
     let other = login(&app, "Bea", "wrong horse", None, Some([198, 51, 100, 7])).await;
     assert_eq!(other.status, StatusCode::UNAUTHORIZED);
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    app.limits.clock().advance(Duration::from_millis(400));
     let again = login(&app, "Ada", "wrong horse", None, Some([198, 51, 100, 7])).await;
     assert_eq!(again.status, StatusCode::UNAUTHORIZED);
     let audit = audit_text(&app).await;
@@ -618,6 +620,8 @@ async fn password_rate_limit_is_per_username() {
     let dir = crate::util::temp_dir();
     let app = state::test_app(&dir).await;
     let ada = setup_admin(&app).await;
+    // Freeze the limiter clock: slow bcrypt or a loaded machine must not refill the quota.
+    app.limits.clock().freeze();
 
     for _ in 0..10 {
         let response = failed_password_change(&app, &ada).await;
@@ -670,7 +674,7 @@ async fn password_rate_limit_is_per_username() {
     );
     assert_clean("other user", &other.body);
 
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    app.limits.clock().advance(Duration::from_millis(400));
     let again = failed_password_change(&app, &ada).await;
     assert_eq!(again.status, StatusCode::UNAUTHORIZED);
     assert_eq!(code_of(&again.body), "invalid_credentials");
@@ -1835,6 +1839,8 @@ async fn share_presigns_a_question_mark_key() {
     )
     .await;
     let ada = setup_admin(&app).await;
+    // Freeze the limiter clock: a loaded machine must not refill the share quota.
+    app.limits.clock().freeze();
     let created = exchange(
         &app,
         request(
