@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest.mock
 
 workflow = Path(".github/workflows/ci.yml").read_text()
@@ -189,6 +190,11 @@ with tempfile.TemporaryDirectory() as temp:
         answer = queue.pop(0) if len(queue) > 1 else queue[0]
         with open(state, "w") as handle:
             json.dump(fixture, handle)
+        if "spawn" in answer:
+            import subprocess
+            helper = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            with open(answer["spawn"], "w") as handle:
+                handle.write(str(helper.pid))
         time.sleep(answer.get("sleep", 0))
         sys.stdout.write(answer.get("stdout", ""))
         sys.stderr.write(answer.get("stderr", ""))
@@ -255,13 +261,35 @@ with tempfile.TemporaryDirectory() as temp:
     # Buildx v0.25.0 printed this summary for `--format '{{.Manifest.Digest}}'`; it is not a digest.
     summary = {"stdout": f"Name:      ghcr.io/example/image:v1\nDigest:    {released_digest}\n"}
     passed, out, err, sleeps = run_alias({"v1": [summary], "latest": [summary]}, timeout=6)
-    assert not passed and not out and "unavailable (transient: output is not a manifest" in err, err
+    assert not passed and not out and "unavailable (permanent: output is not a manifest" in err and not sleeps, (err, sleeps)
+    # Valid JSON that is not a manifest, such as a registry error document, is not a digest either.
+    errors_document = {"stdout": json.dumps({"errors": [{"code": "MANIFEST_UNKNOWN", "message": "manifest unknown"}]})}
+    passed, out, err, sleeps = run_alias({"v1": [errors_document], "latest": [errors_document]})
+    assert not passed and not out and "unavailable (permanent: unsupported manifest media type None)" in err and not sleeps, err
+    # Only the words of a 401/403 answer are permanent; a bare number elsewhere is not.
+    short_read = {"code": 1, "stderr": "ERROR: unexpected EOF after read 401 bytes\n"}
+    passed, out, err, sleeps = run_alias({"v1": [short_read, ok], "latest": [ok]})
+    assert passed and "unavailable (transient: exit status 1: ERROR: unexpected EOF after read 401 bytes)" in err, err
     unavailable = {"code": 1, "stderr": "ERROR: unexpected status from HEAD request: 503 Service Unavailable\n"}
     passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [unavailable]}, timeout=20)
     assert not passed and err.rstrip().endswith("alias=unavailable (transient: exit status 1: ERROR: unexpected status from HEAD request: 503 Service Unavailable))"), err
     assert sleeps == [3, 6, 11], sleeps
-    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [{"sleep": 5, "stdout": released}]}, timeout=1, attempt_timeout=0.2)
+    helper_pid = root / "alias-helper.pid"
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [{"sleep": 5, "stdout": released, "spawn": str(helper_pid)}]}, timeout=1, attempt_timeout=0.2)
     assert not passed and "no response within 0.2 seconds" in err, err
+    # The timeout stops the whole process group, including a helper the command started.
+    pid = int(helper_pid.read_text())
+    for _ in range(10):
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            state = "gone"
+        if state in ("gone", "Z", "X"):
+            break
+        time.sleep(0.05)
+    if state not in ("gone", "Z", "X"):
+        os.kill(pid, 9)
+    assert state in ("gone", "Z", "X"), f"helper process {pid} survived the timeout ({state})"
     (root / "empty-path").mkdir()
     passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [ok]}, extra_path=False)
     assert not passed and "docker is not installed" in err and not sleeps, err
@@ -269,6 +297,59 @@ with tempfile.TemporaryDirectory() as temp:
     # A transient error followed by a good read passes, and the failed attempt is logged.
     passed, out, err, sleeps = run_alias({"v1": [unavailable, ok], "latest": [ok]})
     assert passed and "Attempt 1:" in err and "503 Service Unavailable" in err and released_digest in out and sleeps == [3], (err, sleeps)
+
+    # Each redaction rule has its own cases. Every sample is caught by its rule and by no other
+    # rule on its own, so removing any one rule fails its cases.
+    redaction_cases = {
+        "bearer-basic": [
+            ("Authorization: Bearer opaqueBearerValue123", "opaqueBearerValue123"),
+            ("Authorization: Basic dXNlcjpvcGFxdWVCYXNpYw", "dXNlcjpvcGFxdWVCYXNpYw"),
+        ],
+        "key-value": [
+            ("GET /token?scope=x&token=opaqueQueryToken1", "opaqueQueryToken1"),
+            ("access_token=opaqueAccessToken1&expires=1", "opaqueAccessToken1"),
+            ("refresh_token=opaqueRefresh1", "opaqueRefresh1"),
+            ("id_token=opaqueIdToken1", "opaqueIdToken1"),
+            ("client_secret=opaqueClientSecret1", "opaqueClientSecret1"),
+            ("login with password=opaquePassword1", "opaquePassword1"),
+            ("url-encoded token%3DopaqueEncoded1", "opaqueEncoded1"),
+        ],
+        "json-field": [
+            ('{"token":"opaqueJsonToken1","expires_in":300}', "opaqueJsonToken1"),
+            ('{"access_token": "opaqueJsonToken2"}', "opaqueJsonToken2"),
+            ('{"refresh_token" : "opaque json token 3"}', "opaque json token 3"),
+        ],
+        "password-colon": [
+            ("password: opaqueColonPass1", "opaqueColonPass1"),
+            ("Password:opaqueColonPass2", "opaqueColonPass2"),
+        ],
+        "url-userinfo": [
+            ("pull https://robot:opaqueUserinfo1@ghcr.io/v2/x", "opaqueUserinfo1"),
+        ],
+        "jwt": [
+            ("expired eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"),
+        ],
+        "github-token": [
+            ("credential ghp_" + "A1b2C3d4" * 5, "ghp_" + "A1b2C3d4" * 5),
+            ("credential github_pat_" + "Z9y8X7w6" * 4, "github_pat_" + "Z9y8X7w6" * 4),
+        ],
+    }
+    for name, cases in redaction_cases.items():
+        for sample, secret in cases:
+            redacted = alias_module.summarize(sample)
+            assert secret not in redacted and "[redacted]" in redacted, (name, redacted)
+    rules = {name: (pattern, replacement) for name, pattern, replacement in alias_module.SECRETS}
+    assert set(rules) == set(redaction_cases), (sorted(rules), sorted(redaction_cases))
+    for name, cases in redaction_cases.items():
+        for sample, secret in cases:
+            pattern, replacement = rules[name]
+            assert secret not in pattern.sub(replacement, sample), (name, sample)
+            for other, (other_pattern, other_replacement) in rules.items():
+                if other != name:
+                    assert secret in other_pattern.sub(other_replacement, sample), (name, other, sample)
+    # Diagnostic text without credentials is kept.
+    plain = "ERROR: failed to fetch anonymous token: unexpected status: 503 Service Unavailable sha256:" + "a" * 64
+    assert alias_module.summarize(plain) == plain, alias_module.summarize(plain)
 
     assert "needs: gate" in workflow, "release must not run before the tag gate"
     assert "pull_request:" not in workflow and "branches:" not in workflow, "ordinary pushes and PRs must not build"

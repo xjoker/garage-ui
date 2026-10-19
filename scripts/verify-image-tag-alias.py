@@ -14,7 +14,9 @@ read, fails once the timeout expires. Every failed attempt is logged with its re
 
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -31,16 +33,24 @@ MANIFEST_MEDIA_TYPES = {
 }
 # Errors that waiting cannot fix. Anything else, including errors not listed in either
 # group, is retried until the timeout, and still fails if it never clears.
+# Registry 401/403 answers carry the words below ("401 Unauthorized", "403 Forbidden", "denied");
+# a bare 401 or 403 is not matched, so text such as "read 401 bytes" is not taken for one.
 PERMANENT_ERRORS = re.compile(
-    r"unauthorized|authentication required|denied|forbidden|\b40[13]\b|invalid reference format"
+    r"unauthorized|authentication required|denied|forbidden|invalid reference format"
     r"|unknown flag|unknown command|is not a docker command|unknown shorthand flag",
     re.IGNORECASE,
 )
+# Credentials that could appear in docker output, each replaced before anything is logged.
+# Every rule has its own test case in scripts/check-release-version.sh.
+SECRET_KEY = r"[\w.-]*(?:token|secret|password|passwd|api[_-]?key)"
 SECRETS = [
-    (re.compile(r"(?i)\b(bearer|basic)\s+[^\s\"']+"), r"\1 [redacted]"),
-    (re.compile(r"(?i)\b(access_token|token|password|secret)=[^\s&\"']+"), r"\1=[redacted]"),
-    (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]*"), "[redacted]"),
-    (re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,})"), "[redacted]"),
+    ("bearer-basic", re.compile(r"(?i)\b(bearer|basic)\s+[^\s\"']+"), r"\1 [redacted]"),
+    ("key-value", re.compile(rf"(?i)\b({SECRET_KEY})(=|%3D)[^\s&\"',;]+"), r"\1\2[redacted]"),
+    ("json-field", re.compile(rf"(?i)(\"{SECRET_KEY}\"\s*:\s*\")[^\"]*\""), r'\1[redacted]"'),
+    ("password-colon", re.compile(r"(?i)\b(passw(?:or)?d)(\s*:\s*)[^\s,;\"']+"), r"\1\2[redacted]"),
+    ("url-userinfo", re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1[redacted]@"),
+    ("jwt", re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]*"), "[redacted]"),
+    ("github-token", re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,})"), "[redacted]"),
 ]
 
 
@@ -61,25 +71,30 @@ class Reading:
 
 def summarize(text, limit=300):
     """One redacted line from command output, short enough for a CI log."""
-    for pattern, replacement in SECRETS:
+    for _name, pattern, replacement in SECRETS:
         text = pattern.sub(replacement, text)
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def digest_of(raw):
-    """The digest of a manifest exactly as served, or an error naming what was printed."""
+    """The digest of a manifest exactly as served, or an error naming what was printed.
+
+    Buildx exited successfully, so output that is not a manifest will not change on a retry
+    (for example a Buildx version that prints something else); it fails at once.
+    """
     try:
         manifest = json.loads(raw)
     except ValueError:
-        return Reading(error=f"output is not a manifest: {summarize(raw.decode('utf-8', 'replace'), 120)!r}")
+        detail = summarize(raw.decode("utf-8", "replace"), 120)
+        return Reading(error=f"output is not a manifest: {detail!r}", transient=False)
     if not isinstance(manifest, dict):
-        return Reading(error="output is not a manifest object")
+        return Reading(error="output is not a manifest object", transient=False)
     media_type = manifest.get("mediaType")
     if media_type not in MANIFEST_MEDIA_TYPES and not (
         media_type is None and manifest.get("schemaVersion") == 2 and ("manifests" in manifest or "config" in manifest)
     ):
-        return Reading(error=f"unsupported manifest media type {media_type!r}")
+        return Reading(error=f"unsupported manifest media type {media_type!r}", transient=False)
     return Reading(digest="sha256:" + hashlib.sha256(raw).hexdigest())
 
 
@@ -88,16 +103,26 @@ def inspect_digest(reference, timeout=None):
     timeout = ATTEMPT_TIMEOUT if timeout is None else timeout
     command = ["docker", "buildx", "imagetools", "inspect", "--raw", reference]
     try:
-        result = subprocess.run(command, check=False, capture_output=True, timeout=timeout)
+        # A session of its own lets a timeout stop the Buildx plugin process too, not only docker.
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
+        )
     except FileNotFoundError:
         return Reading(error="docker is not installed or not on PATH", transient=False)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
         return Reading(error=f"no response within {timeout:g} seconds")
-    stderr = summarize(result.stderr.decode("utf-8", "replace"))
-    if result.returncode != 0:
-        detail = f"exit status {result.returncode}: {stderr or 'no error output'}"
+    stderr = summarize(stderr.decode("utf-8", "replace"))
+    if process.returncode != 0:
+        detail = f"exit status {process.returncode}: {stderr or 'no error output'}"
         return Reading(error=detail, transient=not PERMANENT_ERRORS.search(stderr))
-    return digest_of(result.stdout)
+    return digest_of(stdout)
 
 
 def log(message):
