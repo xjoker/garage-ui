@@ -384,6 +384,7 @@ pub async fn boot_with(loaded: Loaded, quota: governor::Quota) -> anyhow::Result
             loaded.settings.data_dir.display()
         )
     })?;
+    restrict_data_dir(&loaded.settings.data_dir);
     let probe = loaded.settings.data_dir.join(".write-probe");
     std::fs::write(&probe, b"").map_err(|_| {
         anyhow::anyhow!(
@@ -471,6 +472,26 @@ async fn import_bootstrap(
 fn is_bcrypt_hash(hash: &str) -> bool {
     hash.starts_with("$2a$") || hash.starts_with("$2b$") || hash.starts_with("$2y$")
 }
+
+// The data directory holds the user database, sessions, audit records, and the session key, so
+// only the service user may enter it. A directory the process cannot change, such as a mount
+// point owned by another user, is reported and left as it is.
+#[cfg(unix)]
+fn restrict_data_dir(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(dir) else {
+        return;
+    };
+    if meta.permissions().mode() & 0o777 == 0o700 {
+        return;
+    }
+    if std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).is_err() {
+        tracing::warn!(dir = %dir.display(), "could not restrict data directory permissions to 0700");
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_data_dir(_dir: &Path) {}
 
 fn load_session_key(dir: &Path, material: KeyMaterial) -> anyhow::Result<Vec<u8>> {
     match material {

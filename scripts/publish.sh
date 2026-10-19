@@ -27,7 +27,7 @@ if ! git diff --quiet HEAD --; then
   echo "Publishing requires clean tracked source" >&2
   exit 1
 fi
-files="garage-ui-linux-amd64 garage-ui-linux-arm64 sbom.spdx.json compose.yaml .env.example SHA256SUMS"
+files="garage-ui-linux-amd64 garage-ui-linux-arm64 sbom.spdx.json compose.yaml default.env.example SHA256SUMS"
 for name in $files; do
   [ -f "$out/$name" ] || { echo "Missing $out/$name; run scripts/release.sh first" >&2; exit 1; }
 done
@@ -153,6 +153,11 @@ fi
 for name in $files; do
   gh release upload "$version" "$out/$name" --repo "$repo" --clobber
 done
+# Download the draft's assets as a user would and check them against SHA256SUMS before the
+# release can be published.
+assets=$(mktemp -d)
+sh scripts/verify-release-assets.sh "$assets/draft" "$version"
+rm -rf "$assets"
 
 if [ "${PUBLISH_GITHUB_RELEASE:-}" = true ]; then
   docker buildx imagetools create -t "$registry:latest" "$registry:$version"

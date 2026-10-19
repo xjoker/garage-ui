@@ -24,11 +24,12 @@ mod zip;
 #[cfg(test)]
 mod accept;
 
-pub use bind::listen_addr;
+pub use bind::{listen_addr, listen_port};
 pub use health::probe;
 pub use http::{router, serve_http, shutdown_wait};
 pub use state::boot;
 
+/// The listening port when `PORT` is unset or empty.
 pub const PORT: u16 = 3909;
 
 pub fn version() -> &'static str {

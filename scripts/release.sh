@@ -245,7 +245,9 @@ if replacements != 1:
     raise SystemExit("Compose must contain exactly one default GARAGE_UI_VERSION")
 Path(destination).write_text(rendered)
 PY_DEPLOYMENT
-cp .env.example "$out/.env.example"
+# The release asset is named default.env.example: GitHub renames an uploaded file whose name
+# starts with a dot. Package it under that name so SHA256SUMS lists the name users download.
+cp .env.example "$out/default.env.example"
 
 # Verify build identity and runtime restrictions on the exact final images.
 python3 - "$version" "$commit" <<'PY'
@@ -302,7 +304,7 @@ names = [
     "garage-ui-linux-arm64",
     "sbom.spdx.json",
     "compose.yaml",
-    ".env.example",
+    "default.env.example",
 ]
 lines = []
 for name in names:

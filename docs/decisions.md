@@ -116,7 +116,7 @@ On 2026-10-10 the maintainer confirmed this. The maintainer's words were: "This 
 
 - A multi-stage image. The build stage contains Rust 1.99.0, a C/C++ compiler, the musl toolchain from the previous section, and Bun 1.4.2. Bun appears only in the build stage.
 - The runtime stage uses the nonroot variant of distroless static: one statically linked binary, no shell, no Node, no Bun, and no system libsqlite, libssl, or glibc.
-- Port 3909. When `HOST` is not set inside the image, listen on `0.0.0.0`. The compose example writes the host port as `127.0.0.1:3909`. The data volume is `/data`. The health check uses the binary's `-health`. The acceptance text for listening and for the port mapping is 3.1 of [security.md](security.md).
+- Default port 3909, changed with `PORT`. When `HOST` is not set inside the image, listen on `0.0.0.0`. The compose example writes the host port as `127.0.0.1:3909`. The data volume is `/data`. The health check uses the binary's `-health`. The acceptance text for listening and for the port mapping is 3.1 of [security.md](security.md).
 - CI builds `linux/amd64` and `linux/arm64`. Base images are pinned by digest.
 - The compose example may also start Garage v2.4.1, only for local evaluation. This project does not install, upgrade, or edit the configuration of a Garage node.
 

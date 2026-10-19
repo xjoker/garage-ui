@@ -6,9 +6,16 @@ use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
 
 use garage_ui::cli::{self, Command, UserArgs, UserCommand};
-use garage_ui::{PORT, boot, listen_addr, probe, serve_http, shutdown_wait};
+use garage_ui::{boot, listen_addr, listen_port, probe, serve_http, shutdown_wait};
 
 fn main() -> anyhow::Result<()> {
+    // Files and directories this process creates (the SQLite database and its sidecars, the
+    // generated session key, the data directory) are private to the service user.
+    #[cfg(unix)]
+    // SAFETY: umask only replaces the process file-mode mask; no other thread exists yet.
+    unsafe {
+        libc::umask(0o077);
+    }
     let cli = cli::parse();
     init_tracing();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -17,7 +24,8 @@ fn main() -> anyhow::Result<()> {
         .context("failed to start tokio")?;
     // The health check must not open the database. Probe before any subcommand.
     if cli.health {
-        return runtime.block_on(probe(SocketAddr::from(([127, 0, 0, 1], PORT))));
+        let port = configured_port()?;
+        return runtime.block_on(probe(SocketAddr::from(([127, 0, 0, 1], port))));
     }
     match cli.command {
         None => runtime.block_on(serve()),
@@ -29,13 +37,18 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn configured_port() -> anyhow::Result<u16> {
+    listen_port(std::env::var("PORT").ok().as_deref())
+}
+
 async fn serve() -> anyhow::Result<()> {
+    let port = configured_port()?;
     let app = boot().await?;
     garage_ui::start_audit_retention(app.db.clone());
     garage_ui::start_limiter_cleanup(app.limits.clone(), app.db.clone());
     garage_ui::start_session_cleanup(app.clone());
     let host = std::env::var("HOST").ok();
-    let addr = listen_addr(host.as_deref())?;
+    let addr = listen_addr(host.as_deref(), port)?;
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to listen on {addr}"))?;

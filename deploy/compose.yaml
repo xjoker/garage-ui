@@ -29,8 +29,10 @@ services:
       S3_REGION: garage
       # This demo is published only on loopback over HTTP. Use secure cookies with HTTPS.
       COOKIE_SECURE: "false"
+      # Listening port inside the container, published on the same loopback port. Default 3909.
+      PORT: ${PORT:-3909}
     ports:
-      - "127.0.0.1:3909:3909"
+      - "127.0.0.1:${PORT:-3909}:${PORT:-3909}"
     volumes:
       - garage-ui-data:/data
       - garage-ui-secrets:/secrets:ro
