@@ -460,11 +460,24 @@ pub async fn change_user_password(
     Ok(Some(user_from_row(&row)))
 }
 
+/// Deletes a user together with its sessions and archive tokens. They are deleted explicitly,
+/// not only through `ON DELETE CASCADE`: `users.id` can be handed out again, so a row left behind
+/// with foreign keys off would belong to whoever is created next with the same id.
 pub async fn delete_user(pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM zip_tokens WHERE user_id = ?")
+        .bind(id)
+        .execute(&mut *transaction)
+        .await?;
     sqlx::query("DELETE FROM users WHERE id = ?")
         .bind(id)
-        .execute(pool)
+        .execute(&mut *transaction)
         .await?;
+    transaction.commit().await?;
     Ok(())
 }
 

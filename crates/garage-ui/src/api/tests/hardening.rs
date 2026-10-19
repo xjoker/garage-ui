@@ -74,6 +74,31 @@
             "unauthenticated",
             "Login required",
         );
+
+        // With a token configured, a wrong one grants nothing: the request is judged by its
+        // session alone, so an anonymous caller gets 401 and a tenant still gets 403.
+        let with_bearer = |session: Option<&Session>, bearer: &str| {
+            let mut scrape = request("GET", "/metrics", None, session);
+            scrape.headers_mut().insert(
+                "authorization",
+                HeaderValue::from_str(&format!("Bearer {bearer}")).unwrap(),
+            );
+            scrape
+        };
+        let short = &token[..token.len() - 1];
+        for bearer in ["wrong-metrics-token", short] {
+            let wrong = exchange(&app, with_bearer(None, bearer)).await;
+            assert_error(
+                &wrong,
+                StatusCode::UNAUTHORIZED,
+                "unauthenticated",
+                "Login required",
+            );
+            assert!(!wrong.body.contains("garage_ui_http_requests_total"));
+            let tenant_wrong = exchange(&app, with_bearer(Some(&tenant), bearer)).await;
+            assert_error(&tenant_wrong, StatusCode::FORBIDDEN, "forbidden", "Not allowed");
+            assert!(!tenant_wrong.body.contains("garage_ui_http_requests_total"));
+        }
     }
 
     #[tokio::test]
@@ -177,11 +202,16 @@
         let user_id = crate::db::insert_user(&pool, "Ada", "stored-hash", "admin", false, false, None)
             .await
             .unwrap();
-        // An older version stored the cookie value itself and left user_version at 0.
+        // An older version stored the cookie value itself and left user_version at 0. Its
+        // cookies are 32 random bytes in hex, the same length as a digest, so length cannot
+        // tell the old rows apart.
+        let legacy_cookie = crate::util::hex_encode(&crate::util::random_bytes(32).unwrap());
+        assert_eq!(legacy_cookie.len(), sha256_hex("x").len());
         sqlx::query(
             "INSERT INTO sessions (id, user_id, csrf_token, key_id, created_at, last_seen_at, expires_at)
-             VALUES ('plain-cookie-value', ?, 'csrf', 'key', 1, 1, 9999999999)",
+             VALUES (?, ?, 'csrf', 'key', 1, 1, 9999999999)",
         )
+        .bind(&legacy_cookie)
         .bind(user_id)
         .execute(&pool)
         .await
@@ -198,6 +228,12 @@
             .await
             .unwrap();
         assert_eq!(left, 0, "plain-text sessions survived the upgrade");
+        let legacy_left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
+            .bind(&legacy_cookie)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(legacy_left, 0, "the legacy cookie row survived the upgrade");
         let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
             .fetch_one(&pool)
             .await
@@ -244,23 +280,130 @@
         }
         pool.close().await;
 
-        // Files an older version left world-readable.
-        let legacy = dir.join("legacy.sqlite");
-        crate::db::open(&legacy).await.unwrap().close().await;
-        for suffix in ["", "-wal", "-shm"] {
-            let file = with_suffix(&legacy, suffix);
-            if !file.exists() {
-                std::fs::write(&file, b"").unwrap();
-            }
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
-        let pool = crate::db::open(&legacy).await.unwrap();
-        crate::db::insert_user(&pool, "Ada", "stored-hash", "admin", false, false, None)
+        // Files an older version left world-readable after it was stopped without a final
+        // checkpoint: the WAL still holds rows that are not in the database file. The files are
+        // copied while the writer is open, which is what such a stop leaves on disk.
+        let running = dir.join("running.sqlite");
+        let writer = crate::db::open(&running).await.unwrap();
+        crate::db::insert_user(&writer, "Ada", "stored-hash", "admin", false, false, None)
             .await
             .unwrap();
+        let legacy = dir.join("legacy.sqlite");
+        for suffix in ["", "-wal", "-shm"] {
+            let file = with_suffix(&legacy, suffix);
+            std::fs::copy(with_suffix(&running, suffix), &file).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        writer.close().await;
+        let wal = with_suffix(&legacy, "-wal");
+        assert!(std::fs::metadata(&wal).unwrap().len() > 0, "the legacy WAL is empty");
+        let pool = crate::db::open(&legacy).await.unwrap();
         for suffix in ["", "-wal", "-shm"] {
             let file = with_suffix(&legacy, suffix);
             assert_eq!(mode(&file), 0o600, "{}", file.display());
         }
+        let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(users, 1, "the rows in the legacy WAL were not recovered");
         pool.close().await;
+    }
+
+    async fn sessions_of(pool: &sqlx::SqlitePool, user_id: i64) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn deleting_a_user_removes_its_sessions_even_without_foreign_keys() {
+        let dir = crate::util::temp_dir();
+        let path = dir.join("garage-ui.sqlite");
+        crate::db::open(&path).await.unwrap().close().await;
+        // The same database with foreign keys off, so ON DELETE CASCADE does nothing.
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .foreign_keys(false);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        crate::db::insert_user(&pool, "Ada", "stored-hash", "admin", false, false, None)
+            .await
+            .unwrap();
+        let bea = crate::db::insert_user(&pool, "Bea", "stored-hash", "viewer", true, false, None)
+            .await
+            .unwrap();
+        let now = crate::util::now_secs();
+        crate::db::insert_session(&pool, "bea-session", bea, "csrf", "key", now, now + 3600)
+            .await
+            .unwrap();
+        crate::db::insert_zip(&pool, "bea-zip", bea, "bucket", "[]")
+            .await
+            .unwrap();
+
+        crate::db::delete_user(&pool, bea).await.unwrap();
+        assert_eq!(sessions_of(&pool, bea).await, 0, "a deleted user kept its session");
+        let zips: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM zip_tokens WHERE user_id = ?")
+            .bind(bea)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(zips, 0, "a deleted user kept its archive token");
+
+        // `users.id` is reused: the next user gets the deleted id and must start with nothing.
+        let cat = crate::db::insert_user(&pool, "Cat", "stored-hash", "admin", false, false, None)
+            .await
+            .unwrap();
+        assert_eq!(cat, bea, "this test relies on SQLite reusing the highest rowid");
+        assert_eq!(sessions_of(&pool, cat).await, 0);
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_deleted_users_cookie_does_not_sign_in_the_next_user_with_its_id() {
+        let dir = crate::util::temp_dir();
+        let app = state::test_app(&dir).await;
+        let (admin, _) = login(&app).await;
+        let viewer = viewer_session(&app, &admin).await;
+        let bea: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'Bea'")
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
+        assert_eq!(sessions_of(&app.db, bea).await, 1);
+
+        let deleted = exchange(
+            &app,
+            request("DELETE", &format!("/api/users/{bea}"), None, Some(&admin)),
+        )
+        .await;
+        assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{}", deleted.body);
+        assert_eq!(sessions_of(&app.db, bea).await, 0);
+
+        let created = exchange(
+            &app,
+            request(
+                "POST",
+                "/api/users",
+                Some(
+                    &json!({ "username": "Cat", "password": "admin horse", "role": "admin" })
+                        .to_string(),
+                ),
+                Some(&admin),
+            ),
+        )
+        .await;
+        assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+        let cat: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'Cat'")
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
+        assert_eq!(cat, bea, "this test relies on SQLite reusing the highest rowid");
+        let status = exchange(&app, request("GET", "/api/auth/status", None, Some(&viewer))).await;
+        let status: Value = serde_json::from_str(&status.body).unwrap();
+        assert_eq!(status["authenticated"], false, "{status}");
     }
