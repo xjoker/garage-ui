@@ -125,9 +125,13 @@ The chart uses the release image by default. Override `image.repository` and `im
 
 Preserve **all of `DATA_DIR`**, including `garage-ui.sqlite`, any SQLite WAL/SHM sidecars, and `session.key`. If using `SESSION_KEY_FILE`, preserve that external key separately. A simple consistent filesystem backup is to stop the UI service before copying or snapshotting its volume, then restart it after the backup. Do not copy only the main SQLite file while writes continue.
 
-To restore, stop the UI, restore the complete saved state and key, ensure the runtime user can read/write the data directory, and restart with the intended configuration. Verify that the expected users and audit records appear and Garage connections work. Keep the saved copy until restoration is verified.
+The UI keeps `DATA_DIR` at mode `0700` and its files at `0600`, owned by the service user (UID 65532 in the container image). Run backup and monitoring jobs that read it as that user or as root; a job running as another user cannot read the directory. A backup holds password hashes, sessions, and audit records: store it as sensitively as the live volume.
+
+To restore, stop the UI, restore the complete saved state and key, ensure the runtime user owns the data directory and can read/write it, and restart with the intended configuration. Startup changes restored files back to `0600`, and stops with an error if other users, or a group other than the runtime user's own, can write to the directory. Verify that the expected users and audit records appear and Garage connections work. Keep the saved copy until restoration is verified.
 
 UI backups preserve local accounts, sessions, audit, ZIP tokens, and bucket-key selections. Objects, Garage keys/tokens, cluster metadata, and Garage snapshots require Garage's own backup process.
+
+Backups taken before 20261019.1 store session cookies in plain text. Restoring such a backup with a version before 20261019.1 makes those cookies valid again until they expire (24 hours at most by default); 20261019.1 and later delete them at the first start. After a rollback to a version before 20261019.1 and a later upgrade, the sessions the older version created are not deleted at startup: they cannot sign in to the newer version, and they are removed when they expire.
 
 ## Upgrade deliberately
 
@@ -139,6 +143,8 @@ COOKIE_SECURE=false docker compose up -d
 ```
 
 The command above is for local HTTP; omit the `COOKIE_SECURE=false` override behind HTTPS. Check **Settings → About**, verify `/healthz`, and confirm login and a storage operation. Keep your backup until verification succeeds.
+
+Upgrading from a version before 20261019.1 signs every user out once: the first start deletes the sessions an earlier version stored, and the log records `signed out sessions stored before session digests`. Sign in again; scripts that hold a session cookie need a new one. Accounts, passwords, and roles are unchanged.
 
 ## How release artifacts are produced
 

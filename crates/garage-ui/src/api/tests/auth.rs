@@ -524,6 +524,9 @@
     async fn setup_rate_limit_is_audited() {
         let dir = crate::util::temp_dir();
         let app = app_for(&dir, "http://127.0.0.1:9").await;
+        // Freeze the limiter clock before the first setup request, which already spends the
+        // setup budget: a loaded machine must not refill it before the eleventh request.
+        app.limits.clock().freeze();
         let created = exchange(
             &app,
             request(

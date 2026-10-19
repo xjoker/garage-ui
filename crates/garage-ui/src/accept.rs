@@ -576,6 +576,9 @@ async fn setup_rate_limit_is_per_address() {
     let app = state::test_app(&dir).await;
     let peer = [198, 51, 100, 7];
     let other_peer = [203, 0, 113, 9];
+    // Freeze the limiter clock before the first setup request, which already spends the setup
+    // budget: a loaded machine must not refill it before the eleventh request.
+    app.limits.clock().freeze();
 
     let created = setup_from(&app, peer).await;
     assert_eq!(created.status, StatusCode::OK);
@@ -600,7 +603,7 @@ async fn setup_rate_limit_is_per_address() {
     assert_eq!(code_of(&other.body), "already_initialized");
     assert_clean("setup other peer", &other.body);
 
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    app.limits.clock().advance(Duration::from_millis(400));
     let again = setup_from(&app, peer).await;
     assert_eq!(again.status, StatusCode::CONFLICT);
     assert_eq!(code_of(&again.body), "already_initialized");

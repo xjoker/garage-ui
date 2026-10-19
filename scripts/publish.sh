@@ -41,11 +41,15 @@ release_state=$(printf '%s\n' "$releases" | awk -v version="$version" '$1 == ver
 case "$release_state" in
   true) release_exists=true ;;
   '') release_exists=false ;;
+  *false*) echo "Release $version is already published; refusing to modify it" >&2; exit 1 ;;
+  *"
+"*) echo "Several draft releases use tag $version; delete the extra drafts, then run this script again" >&2; exit 1 ;;
   *) echo "Release $version is already published; refusing to modify it" >&2; exit 1 ;;
 esac
 
+assets=
 notes=$(mktemp)
-trap 'rm -f "$notes"' EXIT HUP INT TERM
+trap 'rm -f "$notes"; if [ -n "$assets" ]; then rm -rf "$assets"; fi' EXIT HUP INT TERM
 python3 - "$version" "$notes" <<'PY'
 import sys
 from pathlib import Path
@@ -150,14 +154,24 @@ else
   gh release create "$version" --repo "$repo" --draft --target "$commit" \
     --title "$version" --notes-file "$notes"
 fi
+# --clobber replaces assets with the same names but keeps any other asset already on the draft,
+# for example one left by an earlier attempt. The check below then fails on that extra file:
+# delete it from the draft before running this script again.
 for name in $files; do
   gh release upload "$version" "$out/$name" --repo "$repo" --clobber
 done
 # Download the draft's assets as a user would and check them against SHA256SUMS before the
-# release can be published.
+# release can be published. The downloaded SHA256SUMS must also be the one prepared here, so a
+# draft whose files and checksums were both replaced is not published. The trap above removes
+# the download directory on every exit.
 assets=$(mktemp -d)
 sh scripts/verify-release-assets.sh "$assets/draft" "$version"
+if ! cmp -s "$assets/draft/SHA256SUMS" "$out/SHA256SUMS"; then
+  echo "The draft's SHA256SUMS differs from $out/SHA256SUMS; refusing to publish" >&2
+  exit 1
+fi
 rm -rf "$assets"
+assets=
 
 if [ "${PUBLISH_GITHUB_RELEASE:-}" = true ]; then
   docker buildx imagetools create -t "$registry:latest" "$registry:$version"

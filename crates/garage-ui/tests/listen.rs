@@ -141,3 +141,157 @@ fn an_invalid_port_stops_startup() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn an_existing_setgid_data_dir_keeps_setgid() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = work_dir("setgid");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o2775)).unwrap();
+    let port = free_port();
+    let mut server = start(&dir, &data, Some(port));
+    wait_ready(&mut server, port);
+    let full = std::fs::metadata(&data).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(full, 0o2700, "only the permission bits change");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_existing_readable_session_key_is_restricted() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = work_dir("key");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let key: Vec<u8> = (1..=48).collect();
+    let path = data.join("session.key");
+    std::fs::write(&path, &key).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let port = free_port();
+    let mut server = start(&dir, &data, Some(port));
+    wait_ready(&mut server, port);
+    assert_eq!(mode(&path), 0o600);
+    assert_eq!(std::fs::read(&path).unwrap(), key, "the key itself is kept");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_user_commands_restrict_the_data_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = work_dir("cli");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_garage-ui"))
+        .env_clear()
+        .env("DATA_DIR", &data)
+        .arg("users")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(mode(&data), 0o700);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// A data directory that other users can write to, and that this process may not change, stops
+// startup before anything is written there. Without root, the only such directory a test can
+// rely on is a shared one owned by another user, like `/tmp` (root-owned, mode 1777). The test
+// is skipped, with a message, when the temporary directory is not like that (for example when
+// the tests run as root) or already holds a file the UI would use.
+#[cfg(unix)]
+#[test]
+fn a_data_dir_other_users_can_write_stops_startup() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let shared = std::env::temp_dir();
+    let own = work_dir("shared-owner");
+    let me = std::fs::metadata(&own).unwrap().uid();
+    let _ = std::fs::remove_dir_all(&own);
+    let before = std::fs::metadata(&shared).unwrap();
+    let planted = ["garage-ui.sqlite", "session.key", ".write-probe"]
+        .iter()
+        .any(|name| shared.join(name).exists());
+    if before.uid() == me || before.mode() & 0o002 == 0 || planted {
+        eprintln!(
+            "SKIPPED: {} is not another user's directory that others can write to",
+            shared.display()
+        );
+        return;
+    }
+    let cleanup = || {
+        for name in [
+            "garage-ui.sqlite",
+            "garage-ui.sqlite-wal",
+            "garage-ui.sqlite-shm",
+        ] {
+            let _ = std::fs::remove_file(shared.join(name));
+        }
+        let _ = std::fs::remove_file(shared.join("session.key"));
+    };
+    let check = |label: &str, args: &[&str], extra: &[(&str, String)]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_garage-ui"));
+        command
+            .env_clear()
+            .env("DATA_DIR", &shared)
+            .env("HOST", "127.0.0.1")
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, value) in extra {
+            command.env(key, value);
+        }
+        let mut child = Server(command.spawn().unwrap());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                drop(child);
+                cleanup();
+                panic!("{label}: garage-ui kept running in a directory others can write to");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let mut text = String::new();
+        child
+            .0
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        child
+            .0
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        let wrote = ["garage-ui.sqlite", "session.key"]
+            .iter()
+            .any(|name| shared.join(name).exists());
+        if wrote {
+            cleanup();
+        }
+        assert!(!status.success(), "{label}: {text}");
+        assert!(!wrote, "{label}: wrote into the shared directory");
+        assert!(
+            text.contains("is writable by other users") && text.contains("Refusing to start"),
+            "{label}: {text}"
+        );
+    };
+    check("service", &[], &[("PORT", free_port().to_string())]);
+    check("users command", &["users"], &[]);
+    let after = std::fs::metadata(&shared).unwrap();
+    assert_eq!(
+        after.permissions().mode() & 0o7777,
+        before.permissions().mode() & 0o7777,
+        "the shared directory's mode changed"
+    );
+}
