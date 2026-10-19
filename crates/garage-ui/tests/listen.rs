@@ -179,6 +179,26 @@ fn an_existing_readable_session_key_is_restricted() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn the_user_commands_restrict_the_data_dir() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = work_dir("cli");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_garage-ui"))
+        .env_clear()
+        .env("DATA_DIR", &data)
+        .arg("users")
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(mode(&data), 0o700);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // A data directory that other users can write to, and that this process may not change, stops
 // startup before anything is written there. Without root, the only such directory a test can
 // rely on is a shared one owned by another user, like `/tmp` (root-owned, mode 1777). The test
@@ -267,6 +287,7 @@ fn a_data_dir_other_users_can_write_stops_startup() {
         );
     };
     check("service", &[], &[("PORT", free_port().to_string())]);
+    check("users command", &["users"], &[]);
     let after = std::fs::metadata(&shared).unwrap();
     assert_eq!(
         after.permissions().mode() & 0o7777,

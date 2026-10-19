@@ -77,6 +77,9 @@ async fn open_db() -> anyhow::Result<(SqlitePool, u32)> {
     // SQLite does not create parent directories. Create the directory here without booting or listening.
     std::fs::create_dir_all(&dir)
         .map_err(|_| anyhow::anyhow!("data directory is not writable: {}", dir.display()))?;
+    // The same permission rules as service startup: the directory becomes 0700, and a directory
+    // other accounts can write to stops the command before the database is opened.
+    crate::state::restrict_data_dir(&dir)?;
     let pool = crate::db::open(&dir.join("garage-ui.sqlite")).await?;
     Ok((pool, loaded.settings.bcrypt_cost))
 }
