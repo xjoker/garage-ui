@@ -46,7 +46,8 @@ On Garage v2.3.0 and v2.4.1, explicitly set `S3_ENDPOINT_URL` and `S3_REGION`; t
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HOST` | `127.0.0.1` | IP address to bind; port is fixed at 3909. The container image sets `0.0.0.0` |
+| `HOST` | `127.0.0.1` | IP address to bind. The container image sets `0.0.0.0` |
+| `PORT` | `3909` | TCP port to listen on, 1–65535; an empty value means 3909. `--health` probes this port on 127.0.0.1. Like `HOST`, the binary reads it from the process environment, not from `.env`; Compose reads `PORT` from `.env`, passes it to the container, and publishes it on the same loopback port. The Helm chart sets it from `port` |
 | `GARAGE_HEADER_READ_TIMEOUT_SECS` | `10` | HTTP/1 request-header read timeout in seconds |
 | `GARAGE_IDLE_TIMEOUT_SECS` | `60` | Connection inactivity timeout in seconds; successful reads or writes reset it |
 | `DATA_DIR` | `./data` | Writable directory for `garage-ui.sqlite` and generated `session.key` |

@@ -1489,6 +1489,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "image",
+ "libc",
  "reqwest",
  "rust-embed",
  "rustls",

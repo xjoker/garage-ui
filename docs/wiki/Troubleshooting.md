@@ -12,7 +12,7 @@ Capture the visible error message/code, the affected task, and the UI/Garage ver
 | Object-key configuration error | Set both S3 access key ID and secret, or neither |
 | Authentication-disabled setting | Remove `AUTH_DISABLED`, `DISABLE_AUTH`, and `GARAGE_UI_NO_AUTH` entirely |
 | Data directory not writable | Make `DATA_DIR` or its mounted volume writable by the runtime user |
-| Listener error | `HOST` must be an IP address, and port 3909 must be available |
+| Listener error | `HOST` must be an IP address, `PORT` must be a TCP port from 1 to 65535 (default 3909), and that port must be available |
 
 The local health probe is:
 
@@ -20,7 +20,7 @@ The local health probe is:
 ./target/release/garage-ui --health
 ```
 
-It checks `/healthz` on 127.0.0.1:3909 and exits successfully when the probe succeeds. A successful UI liveness check does not prove that Garage is reachable or all S3 operations work.
+It checks `/healthz` on 127.0.0.1 at `PORT` (default 3909) and exits successfully when the probe succeeds. A successful UI liveness check does not prove that Garage is reachable or all S3 operations work.
 
 ## Login loops or setup reappears
 

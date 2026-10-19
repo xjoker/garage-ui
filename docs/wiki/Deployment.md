@@ -77,7 +77,7 @@ This uses local HTTP. Open [http://localhost:3909](http://localhost:3909). Use H
 
 ## Download the Linux binary
 
-Choose `garage-ui-linux-amd64` for an x86-64 Linux host or `garage-ui-linux-arm64` for an ARM64 Linux host. These binaries do not run natively on macOS or Windows; use Docker there. Download the binary and `SHA256SUMS` from the same [release](https://github.com/xjoker/garage-ui/releases), then verify:
+Choose `garage-ui-linux-amd64` for an x86-64 Linux host or `garage-ui-linux-arm64` for an ARM64 Linux host. These binaries do not run natively on macOS or Windows; use Docker there. Download the binary and `SHA256SUMS` from the same [release](https://github.com/xjoker/garage-ui/releases), then verify. `SHA256SUMS` lists every release file under its download name, including `default.env.example`; keep that name while verifying and rename it to `.env` afterwards. `--ignore-missing` only skips files you did not download:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
@@ -95,7 +95,7 @@ export COOKIE_SECURE=false
 ./garage-ui-linux-amd64
 ```
 
-Replace the addresses and region with your Garage configuration, create the token file before starting, and use the ARM64 filename on that architecture. The binary defaults to `127.0.0.1:3909` and stores UI state in `./data`. Preserve that directory across upgrades. Binaries and images are unsigned; SHA-256 checksums verify integrity, not publisher identity. Releases also include an SPDX SBOM.
+Replace the addresses and region with your Garage configuration, create the token file before starting, and use the ARM64 filename on that architecture. The binary defaults to `127.0.0.1:3909`; set `PORT` to use another port, for example to run a second instance with its own `DATA_DIR`. It stores UI state in `./data`, which it keeps at mode `0700`. Preserve that directory across upgrades. Binaries and images are unsigned; SHA-256 checksums verify integrity, not publisher identity. Releases also include an SPDX SBOM.
 
 ## Build from source
 

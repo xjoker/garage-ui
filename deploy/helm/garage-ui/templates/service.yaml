@@ -11,6 +11,6 @@ spec:
     {{- include "garage-ui.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
-      port: 3909
+      port: {{ .Values.port }}
       targetPort: http
       protocol: TCP

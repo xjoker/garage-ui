@@ -27,7 +27,7 @@ if ! git diff --quiet HEAD --; then
   echo "Publishing requires clean tracked source" >&2
   exit 1
 fi
-files="garage-ui-linux-amd64 garage-ui-linux-arm64 sbom.spdx.json compose.yaml .env.example SHA256SUMS"
+files="garage-ui-linux-amd64 garage-ui-linux-arm64 sbom.spdx.json compose.yaml default.env.example SHA256SUMS"
 for name in $files; do
   [ -f "$out/$name" ] || { echo "Missing $out/$name; run scripts/release.sh first" >&2; exit 1; }
 done

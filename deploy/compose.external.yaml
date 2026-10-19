@@ -21,8 +21,10 @@ services:
       S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
       # Keep true for HTTPS. Set false only for explicitly local HTTP development.
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # Listening port inside the container, published on the same loopback port. Default 3909.
+      PORT: ${PORT:-3909}
     ports:
-      - "127.0.0.1:3909:3909"
+      - "127.0.0.1:${PORT:-3909}:${PORT:-3909}"
     volumes:
       - garage-ui-data:/data
     read_only: true

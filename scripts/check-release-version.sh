@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -95,9 +96,18 @@ with tempfile.TemporaryDirectory() as temp:
     alias_spec = importlib.util.spec_from_file_location("verify_image_tag_alias", "scripts/verify-image-tag-alias.py")
     alias_module = importlib.util.module_from_spec(alias_spec)
     alias_spec.loader.exec_module(alias_module)
+    # SHA256SUMS must list every published file under its asset name. GitHub
+    # renames an uploaded dotfile, so a dotfile name could never be verified.
+    checksum_step = release_script.rsplit("names = [", 1)[1].split("]", 1)[0]
+    checksummed = re.findall(r'"([^"]+)"', checksum_step)
+    publish_files = re.search(r'^files="([^"]+)"', Path("scripts/publish.sh").read_text(), re.M).group(1).split()
+    assert checksummed + ["SHA256SUMS"] == publish_files, (checksummed, publish_files)
+    assert not [name for name in publish_files if name.startswith(".")], publish_files
+    for name in checksummed:
+        assert f'"$out/{name}"' in release_script, f"release.sh does not package {name}"
     artifacts = root / "artifacts"
     artifacts.mkdir()
-    names = ["garage-ui-linux-amd64", "garage-ui-linux-arm64", "sbom.spdx.json", "compose.yaml", ".env.example"]
+    names = ["garage-ui-linux-amd64", "garage-ui-linux-arm64", "sbom.spdx.json", "compose.yaml", "default.env.example"]
     for name in names:
         (artifacts / name).write_text("synthetic release fixture\n")
     (artifacts / "SHA256SUMS").write_text("".join(

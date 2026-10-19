@@ -7,7 +7,7 @@ use sqlx::error::DatabaseError;
 #[derive(Debug, Parser)]
 #[command(name = "garage-ui", version = crate::version())]
 pub struct Cli {
-    /// Check /healthz on 127.0.0.1:3909. Exit 0 when the check succeeds.
+    /// Check /healthz on 127.0.0.1 at PORT (default 3909). Exit 0 when the check succeeds.
     #[arg(long = "health")]
     pub health: bool,
     #[command(subcommand)]

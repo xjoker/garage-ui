@@ -47,6 +47,7 @@ ENV HOST=0.0.0.0
 ENV DATA_DIR=/data
 # Links the ghcr package to this repository, so it shows the README and source.
 LABEL org.opencontainers.image.source="https://github.com/xjoker/garage-ui"
+# The default listening port. Set PORT to listen on another port and publish that one instead.
 EXPOSE 3909
 VOLUME /data
 USER 65532:65532
