@@ -16,6 +16,7 @@ Changes on `main` after 20261016.3 that are not yet part of a release.
 - Behavior change: `garage-ui.sqlite` and its `-wal`, `-shm`, and `-journal` sidecars are created with mode `0600`, and existing files are changed to `0600` at startup (a file that cannot be changed is logged as a warning). Backup or monitoring jobs that read these files as a different user need to run as the service user or read a copy.
 - Release builds no longer contain the test-only `GET /api/objects/preview`, `GET /api/objects/download`, and `POST /api/objects` routes. They served only in-memory test fixtures or answered `501`; object access uses the `/api/buckets/{id}/...` routes, so the UI is unaffected. These paths now behave like any other unknown path.
 - The Users page asks for confirmation before deleting an account; **Cancel** or Escape keeps it.
+- Audit the `403 viewer_read_only` refusal of incomplete-upload aborts (`DELETE /api/buckets/{id}/multipart`) as a `denied` row, like the refused uploads and deletes, so every refused object change by a bound viewer is audited.
 
 ## 20261016.3
 

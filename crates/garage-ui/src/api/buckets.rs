@@ -613,7 +613,13 @@ pub(crate) async fn abort_multipart_uploads(
     Path(id): Path<String>,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    require(&current.user, Op::WriteObjects)?;
+    if let Err(error) = require(&current.user, Op::WriteObjects) {
+        let path = format!("/api/buckets/{id}/multipart");
+        return super::objects::reject_object(
+            &app, &current, "denied", "DELETE", &path, &id, error,
+        )
+        .await;
+    }
     let tenant = tenant::scope(&app, &current.user, &id).await?;
     let aborted = match abort_target(&body)? {
         AbortTarget::All => {

@@ -685,7 +685,9 @@ pub(crate) async fn upload_object(
     Authed(current): Authed,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    require(&current.user, Op::WriteObjects)?;
+    if let Err(error) = require(&current.user, Op::WriteObjects) {
+        return reject_object(&app, &current, "denied", "POST", "/api/objects", "", error).await;
+    }
     tenant::deny(&current.user)?;
     upload_length(&headers, app.settings.max_upload_bytes)?;
     Err(ApiError::not_implemented(
@@ -720,7 +722,7 @@ async fn audit_object(
     .await
 }
 
-async fn reject_object<T>(
+pub(crate) async fn reject_object<T>(
     app: &App,
     current: &Current,
     result: &'static str,
