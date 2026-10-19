@@ -6,7 +6,7 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 Changes on `main` after 20261019.1 that are not yet part of a release.
 
-None yet.
+- Publishing no longer stops after pushing `latest` when `latest` already points at the release image. The check that `latest` matches the version tag read each digest through a Buildx output template that Buildx v0.25.0, the version the release workflow installs, answers with its text summary instead, so it never saw a digest and reported both tags as `unavailable` (the 20261019.1 release had to be published by hand). The check now reads the manifest each tag serves and compares their SHA-256 digests. A different digest, or a digest that cannot be read, still stops publication; each failed attempt is logged with its reason, and errors such as timeouts or `503` responses are retried until the time limit.
 
 ## 20261019.1
 
