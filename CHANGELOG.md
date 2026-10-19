@@ -6,6 +6,7 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 Changes on `main` after 20261019.1 that are not yet part of a release.
 
+- CI pins Docker Buildx to v0.38.0 (was v0.25.0) via `docker/setup-buildx-action` in the `build-images` and `release` jobs. v0.25.0 treated `imagetools inspect --format` strings that start with `{{.Manifest` as a plain text dump instead of a Go template (root cause of SAF-49); the template path was fixed from v0.33.0 onward.
 - Behavior change: when startup cannot restrict `DATA_DIR` to `0700`, it checks the directory again and refuses to start if other users, or a group other than the process's own group, can write to it, because they could replace `garage-ui.sqlite` or `session.key`. The error names the directory. A directory that only the service user and its own group can write to still starts with a warning, as before; this includes a Kubernetes volume whose group is the pod's `runAsGroup`, as in the Helm chart. Fix a refused directory by giving it to the service user or removing group and other write permission.
 - Startup no longer changes a shared directory with the sticky bit, such as `/tmp`, or a directory owned by another user; it logs a warning instead, and the rule above applies. On a directory it does change, only the permission bits become `0700`, so a setgid bit is kept.
 - An existing `session.key` in `DATA_DIR` with a wider mode, for example one restored from a backup, is changed to `0600` at startup. A file named by `SESSION_KEY_FILE` is not changed.
