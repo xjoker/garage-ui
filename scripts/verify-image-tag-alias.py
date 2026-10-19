@@ -3,9 +3,10 @@
 
 Both tags are read with `docker buildx imagetools inspect --raw`, which prints the
 manifest (or index) exactly as the registry serves it, and the digest is the SHA-256 of
-those bytes. This does not depend on `--format`: Buildx v0.25.0, the version the release
-workflow installs, ignores any template that starts with `{{.Manifest` and prints the
-human-readable summary instead, so `{{.Manifest.Digest}}` never produced a digest there.
+those bytes. This does not depend on `--format`: Buildx before v0.33.0 (the release
+workflow pinned v0.25.0 until SAF-51) ignored any template that starts with `{{.Manifest`
+and printed the human-readable summary instead, so `{{.Manifest.Digest}}` never produced
+a digest there.
 
 The gate is unchanged: the alias passes only when both tags were read in the same attempt
 and resolve to the same well-formed digest. A mismatch, or a tag whose digest cannot be
