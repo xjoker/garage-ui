@@ -7,6 +7,9 @@ Entries describe their named release or unpublished draft. Later development wor
 Changes on `main` after 20261016.3 that are not yet part of a release.
 
 - Behavior change: a recursive object delete treats `key` as a folder and appends `/` when it is missing. `key=logs-2024&recursive=true` now deletes only objects under `logs-2024/`; it no longer deletes `logs-2024.txt` or other keys that merely start with `logs-2024`. A request whose folder has no objects, including such a legacy prefix request, returns `200` with `{"deleted":0}` and no error, so scripts that relied on the old prefix match must pass the folder they mean or delete those keys individually.
+- Add `LOGIN_IP_LIMIT_PER_MINUTE` (default `30`): total login attempts per minute from one client address, across all usernames. Every login request spends this budget first, including requests whose username no account can hold. The client address follows `TRUSTED_PROXY`; IPv6 addresses in one /64 network share one budget. Exceeding the limit answers `429` with `Retry-After`.
+- Limit setup attempts the same way by client address (IPv6 grouped per /64); exceeding the setup budget also answers `429`.
+- Condense unauthenticated login and setup audit noise: up to 10 rows per address per minute are written individually; further rows are counted and flushed about once a minute as one `audit_suppressed` summary per address and path.
 
 ## 20261016.3
 
