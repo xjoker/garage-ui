@@ -21,6 +21,8 @@ Sessions normally expire after 24 hours absolute age or two hours idle time. A l
 
 **Share** alone is insufficient: a viewer also needs **Download**. UI roles restrict console operations; they do not replace the Garage permissions of the S3 key used by the server.
 
+A viewer can also be bound to one Garage access key through the user API (`access_key_id`), which limits it to the buckets of that key. The bound key must be read-only: binding a key that holds `write` or `owner` on any bucket is refused with `403 key_exceeds_role`. A viewer stays read-only even when its bound key later gains write access in Garage: uploads, deletes, and incomplete-upload aborts return `403 viewer_read_only`, and reads keep working.
+
 ## Manage accounts as an administrator
 
 1. Open **Users**, choose **Create user**, and enter a username, password, role, and any viewer Download/Share permissions.

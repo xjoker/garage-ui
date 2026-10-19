@@ -1,18 +1,54 @@
     // The Garage key a tenant is bound to through the user API (docs/security.md 3.20, "Binding").
     const OTHER_KEY: &str = "GKother";
+    // Keys that grant more than a viewer may hold: `write` on one bucket, or `owner` alone.
+    const WRITE_KEY: &str = "GKwriter";
+    const OWNER_KEY: &str = "GKowner";
 
-    // GetKeyInfo knows two keys. Every other key is a 404, like a deleted key.
+    // GetKeyInfo for a key that holds `read` on b1 and b2, plus the given grants on b1.
+    fn bound_key_info(id: &str, write: bool, owner: bool) -> Value {
+        let grant = |bucket: &str, read: bool, write: bool, owner: bool| {
+            json!({
+                "id": bucket,
+                "globalAliases": [format!("name-{bucket}")],
+                "localAliases": [],
+                "permissions": { "read": read, "write": write, "owner": owner },
+            })
+        };
+        json!({
+            "accessKeyId": id,
+            "name": id,
+            "expired": false,
+            "permissions": { "createBucket": false },
+            "secretAccessKey": TENANT_SECRET,
+            "buckets": [
+                grant("b2", true, false, false),
+                grant("b1", !owner, write, owner),
+                grant("b4", false, false, false),
+            ],
+        })
+    }
+
+    // GetKeyInfo knows four keys: two read-only, one with `write`, one with `owner`. Every other
+    // key is a 404, like a deleted key.
     fn bind_reply() -> impl Fn(&Seen) -> Vec<u8> + Send + Sync + 'static {
         let known = tenant_admin_reply(false);
         move |call| {
             let target = request_target(&call.line);
             let path = target.split('?').next().unwrap_or("");
             let key = query_value(target, "id").unwrap_or("");
-            if path == "/v2/GetKeyInfo" && key != TENANT_KEY && key != OTHER_KEY {
-                return json_http(
-                    "404 Not Found",
-                    &json!({ "code": "NoSuchAccessKey", "message": "gone" }),
-                );
+            if path == "/v2/GetKeyInfo" {
+                let info = match key {
+                    TENANT_KEY | OTHER_KEY => bound_key_info(key, false, false),
+                    WRITE_KEY => bound_key_info(key, true, false),
+                    OWNER_KEY => bound_key_info(key, false, true),
+                    _ => {
+                        return json_http(
+                            "404 Not Found",
+                            &json!({ "code": "NoSuchAccessKey", "message": "gone" }),
+                        );
+                    }
+                };
+                return json_http("200 OK", &info);
             }
             known(call)
         }
@@ -334,4 +370,93 @@
         let bound = patch_account(&env, id, json!({ "access_key_id": TENANT_KEY })).await;
         assert_eq!(bound.status, StatusCode::OK, "{}", bound.body);
         assert_eq!(session_status(&env, &fourth).await, StatusCode::UNAUTHORIZED);
+    }
+
+    fn assert_exceeds_role(response: &Exchange) {
+        assert_eq!(response.status, StatusCode::FORBIDDEN, "{}", response.body);
+        assert_eq!(code_of(&response.body), "key_exceeds_role", "{}", response.body);
+        let message = serde_json::from_str::<Value>(&response.body).unwrap()["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(message.contains("read-only key"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_viewer_cannot_be_created_with_a_key_that_can_write_or_own() {
+        let env = bind_env().await;
+        for (name, key) in [("Wes", WRITE_KEY), ("Owen", OWNER_KEY)] {
+            let before = crate::db::recent_audit(&env.app.db).await.unwrap().len();
+            let created = create_account(&env, name, json!({ "access_key_id": key })).await;
+            assert_exceeds_role(&created);
+            assert!(
+                crate::db::find_user_by_name(&env.app.db, name)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "{name} must not be stored"
+            );
+            let rows = crate::db::recent_audit(&env.app.db).await.unwrap();
+            assert_eq!(rows.len(), before + 1, "{rows:?}");
+            assert_eq!(rows[0].result, "error");
+            assert_eq!(rows[0].reason, "key_exceeds_role");
+            assert_eq!(rows[0].method, "POST");
+            assert_eq!(rows[0].target, name);
+            assert_eq!(rows[0].status, 403);
+        }
+        // The permissions came from Garage, not from the request.
+        let lines = env.garage.lines();
+        assert!(lines.iter().any(|line| line.contains("GetKeyInfo?id=GKwriter")), "{lines:?}");
+        assert!(lines.iter().any(|line| line.contains("GetKeyInfo?id=GKowner")), "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn a_viewer_cannot_be_rebound_to_a_key_that_can_write_or_own() {
+        let env = bind_env().await;
+        let plain = create_account(&env, "Plain", json!({})).await;
+        let plain_id = id_of(&plain);
+        let bound = create_account(&env, "Tess", json!({ "access_key_id": TENANT_KEY })).await;
+        assert_eq!(bound.status, StatusCode::CREATED, "{}", bound.body);
+        let bound_id = id_of(&bound);
+        let session = sign_in(&env.app, "Tess", "tenant horse").await;
+        for key in [WRITE_KEY, OWNER_KEY] {
+            let patched = patch_account(&env, plain_id, json!({ "access_key_id": key })).await;
+            assert_exceeds_role(&patched);
+            assert_eq!(stored_key(&env, plain_id).await, None);
+            let rebound = patch_account(&env, bound_id, json!({ "access_key_id": key })).await;
+            assert_exceeds_role(&rebound);
+            assert_eq!(stored_key(&env, bound_id).await.as_deref(), Some(TENANT_KEY));
+        }
+        // A refused rebinding changes nothing, so the session of the account stays valid.
+        assert_eq!(session_status(&env, &session).await, StatusCode::OK);
+        // Demoting an administrator into a viewer bound to a writable key is refused the same way.
+        let admin = create_account(&env, "Boss", json!({ "role": "admin" })).await;
+        let demoted = patch_account(
+            &env,
+            id_of(&admin),
+            json!({ "role": "viewer", "access_key_id": WRITE_KEY }),
+        )
+        .await;
+        assert_exceeds_role(&demoted);
+        let stored = crate::db::find_user_by_id(&env.app.db, id_of(&admin))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.role, "admin");
+        assert_eq!(stored.access_key_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_viewer_can_still_be_bound_to_a_read_only_key() {
+        let env = bind_env().await;
+        let created = create_account(&env, "Tess", json!({ "access_key_id": TENANT_KEY })).await;
+        assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+        let id = id_of(&created);
+        let changed = patch_account(&env, id, json!({ "access_key_id": OTHER_KEY })).await;
+        assert_eq!(changed.status, StatusCode::OK, "{}", changed.body);
+        assert_eq!(stored_key(&env, id).await.as_deref(), Some(OTHER_KEY));
+        let tenant = sign_in(&env.app, "Tess", "tenant horse").await;
+        let listed = exchange(&env.app, request("GET", "/api/buckets", None, Some(&tenant))).await;
+        assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
+        assert_eq!(bucket_ids(&listed.body), ["b1", "b2"]);
     }

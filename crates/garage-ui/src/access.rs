@@ -105,11 +105,13 @@ pub fn permits(actor: Actor, op: Op) -> bool {
     }
 }
 
-// A tenant reaches only its granted buckets. Garage enforces read and write on each S3 request,
-// because the request is signed with the tenant's bound key.
+// A tenant reaches only its granted buckets, and only to read them. Garage enforces read on each
+// S3 request, because the request is signed with the tenant's bound key. A tenant is a viewer, and
+// a viewer is read-only: a write or owner grant on the bound key never lets it upload, change, or
+// delete objects (docs/security.md 3.20).
 fn tenant_permits(actor: Actor, op: Op) -> bool {
     match op {
-        Op::ViewBuckets | Op::ViewObjects | Op::WriteObjects | Op::ChangeOwnPassword => true,
+        Op::ViewBuckets | Op::ViewObjects | Op::ChangeOwnPassword => true,
         Op::ReadObjects => actor.download,
         Op::Share => actor.share && actor.download,
         Op::ViewCluster
@@ -122,6 +124,7 @@ fn tenant_permits(actor: Actor, op: Op) -> bool {
         | Op::ViewKeys
         | Op::ViewSecret
         | Op::ChangeKeys
+        | Op::WriteObjects
         | Op::CleanupUploads
         | Op::InspectObject
         | Op::ViewOps
@@ -130,6 +133,12 @@ fn tenant_permits(actor: Actor, op: Op) -> bool {
         | Op::ViewAudit
         | Op::ManageUsers => false,
     }
+}
+
+// True when the refusal is a viewer that holds a bound key trying to change objects. The API
+// answers it with its own code, so the account learns that the role, not Garage, refused.
+pub fn read_only_refusal(actor: Actor, op: Op) -> bool {
+    !actor.admin && actor.tenant && op == Op::WriteObjects && !permits(actor, op)
 }
 
 pub fn cap_share_ttl(seconds: u64) -> u64 {
@@ -175,7 +184,7 @@ mod tests {
             Op::ChangeKeys => [true, false, false, false, false],
             Op::ViewObjects => [true, true, true, true, true],
             Op::ReadObjects => [true, false, true, true, true],
-            Op::WriteObjects => [true, false, false, false, true],
+            Op::WriteObjects => [true, false, false, false, false],
             Op::Share => [true, false, false, true, true],
             Op::CleanupUploads => [true, false, false, false, false],
             Op::InspectObject => [true, false, false, false, false],
@@ -214,9 +223,23 @@ mod tests {
         for tenant in [no_download, download_only, share_without_download] {
             assert!(permits(tenant, Op::ViewBuckets));
             assert!(permits(tenant, Op::ViewObjects));
-            assert!(permits(tenant, Op::WriteObjects));
+            assert!(!permits(tenant, Op::WriteObjects));
+            assert!(read_only_refusal(tenant, Op::WriteObjects));
             assert!(permits(tenant, Op::ChangeOwnPassword));
             assert!(!permits(tenant, Op::CleanupUploads));
+        }
+    }
+
+    #[test]
+    fn only_a_tenant_write_is_a_read_only_refusal() {
+        let tenant = actor(false, true, true, true);
+        let viewer = actor(false, true, true, false);
+        let admin = actor(true, false, false, false);
+        assert!(read_only_refusal(tenant, Op::WriteObjects));
+        assert!(!read_only_refusal(viewer, Op::WriteObjects));
+        assert!(!read_only_refusal(admin, Op::WriteObjects));
+        for op in ALL_OPS.into_iter().filter(|op| *op != Op::WriteObjects) {
+            assert!(!read_only_refusal(tenant, op), "{op:?}");
         }
     }
 

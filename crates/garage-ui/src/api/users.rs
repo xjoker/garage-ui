@@ -175,7 +175,7 @@ pub(crate) async fn create_user(
     };
     if let Some(key) = body.access_key_id.as_deref() {
         let checked = match check_key_shape(role, key) {
-            Ok(()) => require_garage_key(&app, key).await,
+            Ok(()) => require_read_only_key(&app, key).await,
             Err(error) => Err(error),
         };
         if let Err(error) = checked {
@@ -329,7 +329,7 @@ pub(crate) async fn patch_user(
     let key_changed = key != target.access_key_id;
     if let Some(key) = key.as_deref() {
         let checked = match check_key_shape(role, key) {
-            Ok(()) if key_changed => require_garage_key(&app, key).await,
+            Ok(()) if key_changed => require_read_only_key(&app, key).await,
             other => other,
         };
         if let Err(error) = checked {
@@ -644,8 +644,12 @@ fn check_key_shape(role: &str, key: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-async fn require_garage_key(app: &App, key: &str) -> Result<(), ApiError> {
-    let status = proxy::fetch_key_info(app, key).await?.status();
+// The bound key must exist in Garage and must not grant more than the viewer role allows. A
+// viewer is read-only, so a key with `write` or `owner` on any bucket is refused. The key's
+// permissions are read from Garage, not taken from the request (docs/security.md 3.20).
+async fn require_read_only_key(app: &App, key: &str) -> Result<(), ApiError> {
+    let response = proxy::fetch_key_info(app, key).await?;
+    let status = response.status();
     if status == StatusCode::NOT_FOUND {
         return Err(ApiError::bad_request(
             "key_not_found",
@@ -653,12 +657,55 @@ async fn require_garage_key(app: &App, key: &str) -> Result<(), ApiError> {
         ));
     }
     if !status.is_success() {
-        return Err(ApiError::unavailable(
-            "garage_unavailable",
-            "Garage is unavailable",
-        ));
+        return Err(garage_unavailable());
+    }
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .map_err(|_| garage_unavailable())?;
+    let info: BoundKeyInfo = serde_json::from_slice(&bytes).map_err(|_| garage_unavailable())?;
+    if info.grants_more_than_read() {
+        return Err(key_exceeds_role());
     }
     Ok(())
+}
+
+fn garage_unavailable() -> ApiError {
+    ApiError::unavailable("garage_unavailable", "Garage is unavailable")
+}
+
+fn key_exceeds_role() -> ApiError {
+    ApiError::forbidden(
+        "key_exceeds_role",
+        "A viewer can be bound only to a read-only key: this key has write or owner permission on at least one bucket",
+    )
+}
+
+#[derive(Deserialize)]
+struct BoundKeyInfo {
+    #[serde(default)]
+    buckets: Vec<BoundKeyBucket>,
+}
+
+#[derive(Deserialize)]
+struct BoundKeyBucket {
+    #[serde(default)]
+    permissions: BoundKeyPermissions,
+}
+
+#[derive(Default, Deserialize)]
+struct BoundKeyPermissions {
+    #[serde(default)]
+    write: bool,
+    #[serde(default)]
+    owner: bool,
+}
+
+impl BoundKeyInfo {
+    fn grants_more_than_read(&self) -> bool {
+        self.buckets
+            .iter()
+            .any(|bucket| bucket.permissions.write || bucket.permissions.owner)
+    }
 }
 
 async fn reject(

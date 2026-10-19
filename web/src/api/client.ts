@@ -56,6 +56,19 @@ export class ApiError extends Error {
   }
 }
 
+// Refusals that come from the account's role rather than from Garage. They get the UI's own
+// localized text, so a viewer sees why the server refused and that retrying will not help.
+export function roleRefusalMessage(code: string | null): string | null {
+  switch (code) {
+    case "viewer_read_only":
+      return copy("error.viewer.read.only");
+    case "key_exceeds_role":
+      return copy("error.key.exceeds.role");
+    default:
+      return null;
+  }
+}
+
 function failureFrom(text: string, status: number): { message: string; code: string | null } {
   const fallback = `request failed (${status})`;
   if (!text.startsWith("{")) {
@@ -100,7 +113,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const failure = failureFrom(text, response.status);
     noteUnauthenticated(response.status, failure.code, requestGeneration);
-    throw new ApiError(failure.message, failure.code);
+    throw new ApiError(roleRefusalMessage(failure.code) ?? failure.message, failure.code);
   }
   if (!text) {
     return undefined as T;
@@ -149,7 +162,8 @@ export function putObject(input: {
       }
       const failure = failureFrom(xhr.responseText, xhr.status);
       noteUnauthenticated(xhr.status, failure.code, requestGeneration);
-      reject(new Error(fill(copy("ui.request.failed"), { status: xhr.status })));
+      const refused = roleRefusalMessage(failure.code);
+      reject(refused === null ? new Error(fill(copy("ui.request.failed"), { status: xhr.status })) : new ApiError(refused, failure.code));
     };
     xhr.onerror = () => {
       if (!aborted) {
