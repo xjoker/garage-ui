@@ -15,6 +15,7 @@ const actions = [
   ["revoke-permission", "medium"],
   ["delete-empty-bucket", "medium"],
   ["delete-key", "medium"],
+  ["delete-user", "medium"],
   ["recursive-delete", "high"],
   ["batch-delete", "high"],
   ["clear-block", "high"],

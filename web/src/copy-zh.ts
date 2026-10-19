@@ -353,6 +353,7 @@ export const zh = {
   "ui.password.reset": "密码已重置",
   "ui.deleting": "正在删除 {username}",
   "ui.delete.3": "删除 {username}",
+  "ui.delete.user.consequence": "这将永久删除用户 {username} 并注销其所有会话。桶、密钥和对象不受影响。",
   "ui.create.user": "创建用户",
   "ui.role": "角色",
   "ui.download": "下载",

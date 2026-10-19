@@ -792,29 +792,29 @@ async fn sessions_survive_reopen_until_the_key_or_password_changes() {
     );
 
     let expires_before: i64 = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE id = ?")
-        .bind(&ada.id)
+        .bind(crate::db::session_digest(&ada.id))
         .fetch_one(&app.db)
         .await
         .unwrap();
     sqlx::query("UPDATE sessions SET last_seen_at = last_seen_at - 30 WHERE id = ?")
-        .bind(&ada.id)
+        .bind(crate::db::session_digest(&ada.id))
         .execute(&app.db)
         .await
         .unwrap();
     let seen_before: i64 = sqlx::query_scalar("SELECT last_seen_at FROM sessions WHERE id = ?")
-        .bind(&ada.id)
+        .bind(crate::db::session_digest(&ada.id))
         .fetch_one(&app.db)
         .await
         .unwrap();
     let touched = exchange(&app, request("GET", "/api/auth/status", None, Some(&ada))).await;
     assert_eq!(touched.status, StatusCode::OK);
     let expires_after: i64 = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE id = ?")
-        .bind(&ada.id)
+        .bind(crate::db::session_digest(&ada.id))
         .fetch_one(&app.db)
         .await
         .unwrap();
     let seen_after: i64 = sqlx::query_scalar("SELECT last_seen_at FROM sessions WHERE id = ?")
-        .bind(&ada.id)
+        .bind(crate::db::session_digest(&ada.id))
         .fetch_one(&app.db)
         .await
         .unwrap();
@@ -896,8 +896,8 @@ async fn authenticate_rejects_a_disabled_account_and_a_missing_account() {
         .unwrap();
     assert_closed(&app, &first).await;
     let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id IN (?, ?)")
-        .bind(&first.id)
-        .bind(&second.id)
+        .bind(crate::db::session_digest(&first.id))
+        .bind(crate::db::session_digest(&second.id))
         .fetch_one(&app.db)
         .await
         .unwrap();
@@ -917,14 +917,14 @@ async fn authenticate_rejects_a_disabled_account_and_a_missing_account() {
     assert_eq!(deleted.rows_affected(), 1);
     drop(conn);
     let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
-        .bind(&session.id)
+        .bind(crate::db::session_digest(&session.id))
         .fetch_one(&orphan.db)
         .await
         .unwrap();
     assert_eq!(before, 1);
     assert_closed(&orphan, &session).await;
     let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
-        .bind(&session.id)
+        .bind(crate::db::session_digest(&session.id))
         .fetch_one(&orphan.db)
         .await
         .unwrap();

@@ -7,7 +7,9 @@ use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::routing::{post, put};
+#[cfg(test)]
+use axum::routing::post;
+use axum::routing::put;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -29,6 +31,7 @@ mod objects;
 mod users;
 mod workers;
 pub(crate) use objects::put_bucket_object;
+#[cfg(test)]
 pub(crate) use objects::upload_object;
 #[path = "../thumb.rs"]
 mod thumb;
@@ -71,9 +74,11 @@ pub fn routes(app: App) -> Router<App> {
         .merge(audit::routes())
         .layer(middleware::from_fn_with_state(app.clone(), csrf))
         .layer(DefaultBodyLimit::max(json_limit));
-    let upload = Router::new()
-        .route("/api/objects", post(upload_object))
-        .route("/api/buckets/{id}/object", put(put_bucket_object))
+    let upload = Router::new().route("/api/buckets/{id}/object", put(put_bucket_object));
+    // A test-only upload stub that checks permission and size limits, then answers 501.
+    #[cfg(test)]
+    let upload = upload.route("/api/objects", post(upload_object));
+    let upload = upload
         .layer(middleware::from_fn_with_state(app.clone(), csrf))
         .layer(DefaultBodyLimit::max(upload_limit));
     json_routes
@@ -348,6 +353,7 @@ mod tests {
     include!("tests/workers.rs");
     include!("tests/audit.rs");
     include!("tests/uninitialized.rs");
+    include!("tests/hardening.rs");
     #[path = "cors_preflight.rs"]
     mod cors_preflight;
 }

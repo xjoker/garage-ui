@@ -187,6 +187,42 @@ function editUser(username = "Bea") {
   fireEvent.click(screen.getByLabelText(`Actions: ${username}`));
 }
 
+function confirmDelete(username: string) {
+  const dialog = screen.getByRole("dialog", { name: `Confirm ${username}` });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
+}
+
+test("asks for a second confirmation before deleting a user", async () => {
+  const calls = installApi([ada, bea]);
+  renderUsers();
+  await shown();
+  const deletes = () => calls.filter((call) => call.url === "/api/users/2" && call.init?.method === "DELETE");
+
+  fireEvent.click(screen.getByRole("button", { name: "Delete Bea" }));
+  const dialog = await screen.findByRole("dialog", { name: "Confirm Bea" });
+  expect(dialog.textContent).toContain(
+    "This permanently deletes user Bea and signs out its sessions. Buckets, keys, and objects are not changed.",
+  );
+  expect(deletes()).toHaveLength(0);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirm Bea" })).toBeNull());
+  expect(deletes()).toHaveLength(0);
+  expect(screen.getByRole("cell", { name: "Bea", hidden: true })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Delete Bea" }));
+  fireEvent.keyDown(await screen.findByRole("dialog", { name: "Confirm Bea" }), { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Confirm Bea" })).toBeNull());
+  expect(deletes()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "Delete Bea" }));
+  confirmDelete("Bea");
+  await waitFor(() => {
+    expect(deletes()).toHaveLength(1);
+    expect(screen.queryByText("Bea")).toBeNull();
+  });
+  expectAuthed(deletes()[0] as Call);
+});
+
 test("lists users and never renders a password hash", async () => {
   installApi([ada, bea]);
   renderUsers();
@@ -396,6 +432,7 @@ test("creates a user, deletes one, and resets a password with the csrf header", 
   });
 
   fireEvent.click(screen.getByRole("button", { name: "Delete Bea" }));
+  confirmDelete("Bea");
   await waitFor(() => {
     const remove = calls.find((call) => call.url === "/api/users/2" && call.init?.method === "DELETE");
     expectAuthed(remove as Call);
@@ -847,6 +884,7 @@ test("shows Deleting while delete is submitting and keeps the row when it fails"
   renderUsers();
   await shown();
   fireEvent.click(screen.getByRole("button", { name: "Delete Bea" }));
+  confirmDelete("Bea");
   const pending = (await screen.findByRole("button", { name: "Deleting Bea" })) as HTMLButtonElement;
   expect(pending.disabled).toBe(true);
   expect(pending.textContent).toBe("Deleting Bea");

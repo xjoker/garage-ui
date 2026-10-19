@@ -351,6 +351,7 @@ export const en = {
   "ui.password.reset": "Password reset",
   "ui.deleting": "Deleting {username}",
   "ui.delete.3": "Delete {username}",
+  "ui.delete.user.consequence": "This permanently deletes user {username} and signs out its sessions. Buckets, keys, and objects are not changed.",
   "ui.create.user": "Create user",
   "ui.role": "Role",
   "ui.download": "Download",
