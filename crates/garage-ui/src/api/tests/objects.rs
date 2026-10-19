@@ -3673,6 +3673,8 @@
         let dir = crate::util::temp_dir();
         let app = app_for(&dir, "http://127.0.0.1:9").await;
         let (admin, _) = login(&app).await;
+        // Freeze the limiter clock: a loaded machine must not refill the share quota.
+        app.limits.clock().freeze();
         let body = json!({ "ttl_seconds": 3600, "bucket": "bkt-1", "key": "a.txt" }).to_string();
         for _ in 0..10 {
             let response = exchange(
