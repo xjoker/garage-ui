@@ -395,19 +395,6 @@
                 None,
                 Some(tenant),
             ),
-            request("DELETE", "/api/buckets/b3/object?key=a.txt", None, Some(tenant)),
-            put_bytes(
-                "/api/buckets/b3/object?key=up.txt",
-                b"hello",
-                Some("5"),
-                tenant,
-            ),
-            request(
-                "POST",
-                "/api/buckets/b3/objects:delete",
-                Some(&json!({ "keys": ["a.txt"] }).to_string()),
-                Some(tenant),
-            ),
             request(
                 "POST",
                 "/api/buckets/b3/archive-token",
@@ -424,7 +411,6 @@
                 Some(tenant),
             ),
             request("GET", "/api/buckets/b3/multipart", None, Some(tenant)),
-            request("DELETE", "/api/buckets/b3/multipart", None, Some(tenant)),
             request("GET", "/api/buckets/b3/cors", None, Some(tenant)),
             request("GET", "/api/buckets/b3/lifecycle", None, Some(tenant)),
         ];
@@ -462,23 +448,6 @@
         )
         .await;
         assert_eq!(thumb, StatusCode::OK);
-        let upload = exchange(
-            &env.app,
-            put_bytes(
-                "/api/buckets/b1/object?key=up.txt",
-                b"hello",
-                Some("5"),
-                tenant,
-            ),
-        )
-        .await;
-        assert_eq!(upload.status, StatusCode::CREATED, "{}", upload.body);
-        let removed = exchange(
-            &env.app,
-            request("DELETE", "/api/buckets/b1/object?key=old.txt", None, Some(tenant)),
-        )
-        .await;
-        assert_eq!(removed.status, StatusCode::NO_CONTENT, "{}", removed.body);
         let issued = exchange(
             &env.app,
             request(
@@ -507,7 +476,7 @@
         assert_eq!(archive, StatusCode::OK);
 
         let seen = env.s3.seen();
-        assert!(seen.len() >= 8, "{:?}", env.s3.lines());
+        assert!(seen.len() >= 6, "{:?}", env.s3.lines());
         for call in &seen {
             assert_eq!(signing_key(call), TENANT_KEY, "{}", call.line);
             assert!(!call.authorization.contains("PROJECT"), "{}", call.line);
@@ -553,8 +522,8 @@
         )
         .await;
         assert_eq!(upload.status, StatusCode::FORBIDDEN, "{}", upload.body);
-        assert_eq!(code_of(&upload.body), "garage_denied", "{}", upload.body);
-        assert_eq!(env.s3.seen().len(), 2, "{:?}", env.s3.lines());
+        assert_eq!(code_of(&upload.body), "viewer_read_only", "{}", upload.body);
+        assert_eq!(env.s3.seen().len(), 1, "{:?}", env.s3.lines());
     }
 
     #[tokio::test]
@@ -600,7 +569,7 @@
         )
         .await;
         assert_eq!(upload.status, StatusCode::FORBIDDEN, "{}", upload.body);
-        assert_eq!(code_of(&upload.body), "tenant_key_unavailable");
+        assert_eq!(code_of(&upload.body), "viewer_read_only");
         assert!(env.s3.seen().is_empty());
     }
 
@@ -652,4 +621,126 @@
                 .all(|line| !line.contains("GetClusterHealth") && !line.contains("b3")),
             "{lines:?}"
         );
+    }
+
+    // Every object-changing request a viewer can send, once per behavior of the route.
+    fn tenant_change_calls(session: &Session, bucket: &str) -> Vec<Request<Body>> {
+        let object = format!("/api/buckets/{bucket}/object");
+        let many = format!("/api/buckets/{bucket}/objects:delete");
+        let multipart = format!("/api/buckets/{bucket}/multipart");
+        vec![
+            put_bytes(&format!("{object}?key=up.txt"), b"hello", Some("5"), session),
+            request("DELETE", &format!("{object}?key=a.txt"), None, Some(session)),
+            request(
+                "DELETE",
+                &format!("{object}?key=docs/&recursive=true"),
+                None,
+                Some(session),
+            ),
+            request(
+                "POST",
+                &many,
+                Some(&json!({ "keys": ["a.txt"] }).to_string()),
+                Some(session),
+            ),
+            request("DELETE", &multipart, None, Some(session)),
+            request(
+                "DELETE",
+                &multipart,
+                Some(&json!({ "key": "a.txt", "uploadId": "u1" }).to_string()),
+                Some(session),
+            ),
+        ]
+    }
+
+    // The account was bound before binding checked the key: the fixture key holds `write` on b1.
+    #[tokio::test]
+    async fn a_viewer_already_bound_to_a_writable_key_cannot_upload_or_delete() {
+        let env = tenant_env(false, false).await;
+        for bucket in ["b1", "b2", "b3"] {
+            for call in tenant_change_calls(&env.tenant, bucket) {
+                let label = format!("{} {}", call.method(), call.uri());
+                let response = exchange(&env.app, call).await;
+                assert_eq!(response.status, StatusCode::FORBIDDEN, "{label}: {}", response.body);
+                assert_eq!(code_of(&response.body), "viewer_read_only", "{label}");
+                let message = serde_json::from_str::<Value>(&response.body).unwrap()["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string();
+                assert!(message.contains("read-only"), "{label}: {message}");
+            }
+        }
+        assert!(env.s3.seen().is_empty(), "{:?}", env.s3.lines());
+        let rows = crate::db::recent_audit(&env.app.db).await.unwrap();
+        let upload = rows
+            .iter()
+            .find(|row| row.method == "PUT" && row.target == "b1/up.txt")
+            .expect("the refused upload is audited");
+        assert_eq!(upload.result, "denied");
+        assert_eq!(upload.reason, "viewer_read_only");
+        assert_eq!(upload.status, 403);
+        let delete = rows
+            .iter()
+            .find(|row| row.method == "DELETE" && row.target == "b1/a.txt")
+            .expect("the refused delete is audited");
+        assert_eq!(delete.reason, "viewer_read_only");
+    }
+
+    #[tokio::test]
+    async fn a_viewer_bound_to_a_writable_key_still_reads_with_that_key() {
+        let env = tenant_env(false, false).await;
+        for uri in [
+            "/api/buckets",
+            "/api/buckets/b1",
+            "/api/buckets/b1/objects",
+            "/api/buckets/b1/search?q=abc",
+            "/api/buckets/b1/object?key=a.txt",
+            "/api/buckets/b1/object?key=a.txt&download=1",
+            "/api/buckets/b1/multipart",
+        ] {
+            let response = tenant_get(&env, uri).await;
+            assert_eq!(response.status, StatusCode::OK, "{uri}: {}", response.body);
+        }
+        let seen = env.s3.seen();
+        assert!(!seen.is_empty());
+        for call in &seen {
+            assert_eq!(signing_key(call), TENANT_KEY, "{}", call.line);
+            assert!(
+                !call.line.starts_with("PUT ") && !call.line.starts_with("DELETE "),
+                "{}",
+                call.line
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_administrator_still_uploads_and_deletes_where_a_bound_viewer_cannot() {
+        let env = tenant_env(false, false).await;
+        let mut statuses = Vec::new();
+        for call in tenant_change_calls(&env.admin, "b1").into_iter().take(4) {
+            let label = format!("{} {}", call.method(), call.uri());
+            let response = exchange(&env.app, call).await;
+            assert!(!response.body.contains("viewer_read_only"), "{label}: {}", response.body);
+            statuses.push(response.status);
+        }
+        assert_eq!(
+            statuses,
+            [
+                StatusCode::CREATED,
+                StatusCode::NO_CONTENT,
+                StatusCode::OK,
+                StatusCode::OK
+            ]
+        );
+        let lines = env.s3.lines();
+        assert!(lines.iter().any(|line| line.starts_with("PUT ")), "{lines:?}");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("DELETE ") || line.starts_with("POST ")),
+            "{lines:?}"
+        );
+        for call in env.s3.seen() {
+            assert_ne!(signing_key(&call), TENANT_KEY, "{}", call.line);
+        }
     }

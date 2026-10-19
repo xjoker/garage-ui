@@ -10,6 +10,9 @@
         BucketScoped(u16),
         // Every signed-in account may use it; the tenant check does not apply.
         Open,
+        // Uploads, changes, or deletes objects. A tenant is a viewer and gets 403
+        // `viewer_read_only` on every bucket, even when its bound key may write in Garage.
+        ReadOnly,
     }
 
     struct InventoryRow {
@@ -19,7 +22,7 @@
     }
 
     fn inventory() -> Vec<InventoryRow> {
-        use InventoryClass::{BucketScoped, Denied, Open};
+        use InventoryClass::{BucketScoped, Denied, Open, ReadOnly};
         let rows: [(&str, &str, InventoryClass); 79] = [
             ("POST", "/api/setup", Open),
             ("GET", "/api/auth/status", Open),
@@ -45,21 +48,21 @@
             ("GET", "/api/buckets/{id}/lifecycle", BucketScoped(200)),
             ("PUT", "/api/buckets/{id}/lifecycle", Denied),
             ("GET", "/api/buckets/{id}/multipart", BucketScoped(200)),
-            ("DELETE", "/api/buckets/{id}/multipart", BucketScoped(200)),
+            ("DELETE", "/api/buckets/{id}/multipart", ReadOnly),
             ("POST", "/api/buckets/{id}/cleanup-uploads", Denied),
             ("PUT", "/api/buckets/{id}/credential", Denied),
             ("POST", "/api/buckets/{id}/permissions", Denied),
             ("DELETE", "/api/buckets/{id}/permissions", Denied),
             ("GET", "/api/buckets/{id}/objects", BucketScoped(200)),
-            ("POST", "/api/buckets/{id}/objects:delete", BucketScoped(200)),
+            ("POST", "/api/buckets/{id}/objects:delete", ReadOnly),
             ("GET", "/api/buckets/{id}/object", BucketScoped(200)),
-            ("DELETE", "/api/buckets/{id}/object", BucketScoped(204)),
-            ("PUT", "/api/buckets/{id}/object", BucketScoped(201)),
+            ("DELETE", "/api/buckets/{id}/object", ReadOnly),
+            ("PUT", "/api/buckets/{id}/object", ReadOnly),
             ("GET", "/api/buckets/{id}/search", BucketScoped(200)),
             ("GET", "/api/buckets/{id}/inspect", Denied),
             ("POST", "/api/buckets/{id}/archive-token", BucketScoped(200)),
             ("GET", "/api/buckets/{id}/archive", BucketScoped(200)),
-            ("POST", "/api/objects", Denied),
+            ("POST", "/api/objects", ReadOnly),
             ("GET", "/api/objects/preview", Denied),
             ("GET", "/api/objects/download", Denied),
             ("POST", "/api/share", BucketScoped(200)),
@@ -358,6 +361,38 @@
         );
     }
 
+    // The fixture key holds `write` on b1 and only `read` on b2; b3 is not granted. The refusal
+    // is the same on all three, and nothing reaches S3 or a bucket-scoped Admin API call.
+    #[tokio::test]
+    async fn tenant_is_refused_every_object_change_whatever_its_key_may_do() {
+        let env = tenant_env(false, false).await;
+        let garage_before = env.garage.lines().len();
+        let mut allowed = Vec::new();
+        let mut rows = 0;
+        for row in inventory()
+            .iter()
+            .filter(|row| row.class == InventoryClass::ReadOnly)
+        {
+            rows += 1;
+            for bucket in ["b1", "b2", "b3"] {
+                for (label, call) in inventory_requests(&env, row, bucket, &env.tenant).await {
+                    let (status, body) = inventory_send(&env, call).await;
+                    if status != StatusCode::FORBIDDEN || code_of(&body) != "viewer_read_only" {
+                        allowed.push(format!("{label}: {status} {body}"));
+                    }
+                }
+            }
+        }
+        assert_eq!(rows, 5, "every object-changing route is classified");
+        assert!(
+            allowed.is_empty(),
+            "not refused with 403 viewer_read_only:\n{}",
+            allowed.join("\n")
+        );
+        assert!(env.s3.seen().is_empty(), "{:?}", env.s3.lines());
+        assert_eq!(env.garage.lines().len(), garage_before, "{:?}", env.garage.lines());
+    }
+
     #[tokio::test]
     async fn tenant_gets_404_on_every_bucket_scoped_route_of_an_ungranted_bucket() {
         let env = tenant_env(false, false).await;
@@ -402,7 +437,7 @@
             }
         }
         let seen = env.s3.seen();
-        assert!(seen.len() >= 10, "{:?}", env.s3.lines());
+        assert!(seen.len() >= 7, "{:?}", env.s3.lines());
         for call in &seen {
             assert_eq!(signing_key(call), TENANT_KEY, "{}", call.line);
             assert!(!call.authorization.contains("PROJECT"), "{}", call.line);

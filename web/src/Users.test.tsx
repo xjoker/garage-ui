@@ -1052,3 +1052,26 @@ function selectValue(trigger: HTMLElement, value: string) {
 }
 
 Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+
+test("shows the read-only key message when the server refuses a key binding", async () => {
+  document.cookie = "garage_csrf=csrf-token";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (isUserList(input, method)) {
+        return json(userPage([ada, bea]));
+      }
+      if (String(input) === "/api/users/2" && method === "PATCH") {
+        return json({ code: "key_exceeds_role", message: "server text" }, 403);
+      }
+      return json({ message: "unexpected" }, 500);
+    }),
+  );
+  renderUsers();
+  await shown();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Disabled for Bea" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "A viewer can be bound only to a read-only key. This key has write or owner permission on at least one bucket.",
+  );
+});

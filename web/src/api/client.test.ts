@@ -67,3 +67,56 @@ test("uploads capture their session before send and ignore an older session's 40
   expect(await current).toBeInstanceOf(Error);
   expect(clear).toHaveBeenCalledOnce();
 });
+
+test("a viewer's refused change shows the read-only message instead of a bare status", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(
+    JSON.stringify({ code: "viewer_read_only", message: "server text" }),
+    { status: 403 },
+  )));
+  const refused = await api("/api/buckets/b1/object?key=a.txt", { method: "DELETE" }).catch((error: unknown) => error);
+  expect(refused).toMatchObject({
+    code: "viewer_read_only",
+    message: "Viewer accounts are read-only. The access key bound to this account cannot be used to upload, change, or delete objects.",
+  });
+
+  class UploadRequest {
+    status = 403;
+    responseText = JSON.stringify({ code: "viewer_read_only", message: "server text" });
+    withCredentials = false;
+    upload = { onprogress: null };
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    open() {}
+    setRequestHeader() {}
+    send() { this.onload?.(); }
+    abort() { this.onabort?.(); }
+  }
+  vi.stubGlobal("XMLHttpRequest", UploadRequest);
+  const upload = await putObject({ bucketId: "b1", key: "up.txt", body: new Blob(["x"]), contentType: "text/plain", onProgress: vi.fn() })
+    .promise.catch((error: unknown) => error);
+  expect(upload).toMatchObject({ code: "viewer_read_only" });
+  expect((upload as Error).message).toContain("Viewer accounts are read-only.");
+});
+
+test("binding a viewer to a writable key shows why the key was refused", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(
+    JSON.stringify({ code: "key_exceeds_role", message: "server text" }),
+    { status: 403 },
+  )));
+  const refused = await api("/api/users/2", { method: "PATCH", body: JSON.stringify({ access_key_id: "GKwriter" }) })
+    .catch((error: unknown) => error);
+  expect(refused).toMatchObject({
+    code: "key_exceeds_role",
+    message: "A viewer can be bound only to a read-only key. This key has write or owner permission on at least one bucket.",
+  });
+});
+
+test("other refusals keep the server's message", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(
+    JSON.stringify({ code: "forbidden", message: "Not allowed" }),
+    { status: 403 },
+  )));
+  const refused = await api("/api/keys").catch((error: unknown) => error);
+  expect(refused).toMatchObject({ code: "forbidden", message: "Not allowed" });
+});

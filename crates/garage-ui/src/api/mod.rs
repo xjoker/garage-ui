@@ -247,11 +247,22 @@ fn page_json(page: proxy::Page) -> Json<Value> {
 }
 
 fn require(user: &User, op: Op) -> Result<(), ApiError> {
-    if access::permits(user.actor(), op) {
+    let actor = user.actor();
+    if access::permits(actor, op) {
         Ok(())
+    } else if access::read_only_refusal(actor, op) {
+        Err(viewer_read_only())
     } else {
         Err(ApiError::forbidden("forbidden", "Not allowed"))
     }
+}
+
+// A viewer with a bound key keeps read-only access whatever the key may do in Garage.
+fn viewer_read_only() -> ApiError {
+    ApiError::forbidden(
+        "viewer_read_only",
+        "Viewer accounts are read-only: the access key bound to this account cannot be used to upload, change, or delete objects",
+    )
 }
 
 pub(crate) fn validate_username(username: &str) -> Result<(), ApiError> {
