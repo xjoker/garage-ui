@@ -1251,7 +1251,12 @@
         let rows = crate::db::recent_audit(&app.db).await.unwrap();
         let summary = &rows[0];
         assert_eq!(
-            (summary.ip.as_str(), summary.path.as_str(), summary.reason.as_str(), summary.target.as_str()),
+            (
+                summary.ip.as_str(),
+                summary.path.as_str(),
+                summary.reason.as_str(),
+                summary.target.as_str()
+            ),
             ("2001:db8:9:9::/64", "/api/setup", "audit_suppressed", "suppressed=290")
         );
     }
@@ -1288,10 +1293,18 @@
         login(&app).await;
         app.limits.clock().freeze();
         for _ in 0..25 {
-            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.66"))).await;
+            let _ = exchange(
+                &app,
+                login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.66")),
+            )
+            .await;
         }
         for _ in 0..13 {
-            let _ = exchange(&app, login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.77"))).await;
+            let _ = exchange(
+                &app,
+                login_from(&"x".repeat(65), "wrong horse", Some("203.0.113.77")),
+            )
+            .await;
         }
         // Summaries are written in address order; make the second one fail.
         sqlx::query(
@@ -1309,7 +1322,10 @@
         };
         assert_eq!(crate::flush_suppressed_audit(&app.db, &app.limits).await, Err(1));
         let rows = crate::db::recent_audit(&app.db).await.unwrap();
-        assert_eq!(summaries(&rows), vec![("203.0.113.66".to_string(), "suppressed=15".to_string())]);
+        assert_eq!(
+            summaries(&rows),
+            vec![("203.0.113.66".to_string(), "suppressed=15".to_string())]
+        );
 
         sqlx::query("DROP TRIGGER fail_summary").execute(&app.db).await.unwrap();
         // Only the failed counter is retried, with its count unchanged.
