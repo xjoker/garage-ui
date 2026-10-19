@@ -205,6 +205,10 @@ fn duplicate_column(error: &sqlx::Error) -> bool {
 }
 
 const SCHEMA: &[&str] = &[
+    // `id INTEGER PRIMARY KEY` without AUTOINCREMENT: SQLite hands the highest deleted id to the
+    // next user. `delete_user` therefore removes dependent rows explicitly, and two tests in
+    // `api/tests/hardening.rs` assert that the reused id inherits nothing; they also assert the
+    // reuse itself. A migration to AUTOINCREMENT must update those assertions.
     "CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY,
         username TEXT NOT NULL,
