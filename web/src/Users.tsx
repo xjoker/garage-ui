@@ -447,27 +447,27 @@ function AccountRow({ account, self }: { account: Account; self: boolean }) {
                 >
                   {remove.isPending ? fill(copy("ui.deleting"), { username: account.username }) : copy("ui.delete.2")}
                 </Button>
-                {confirmDelete ? (
-                  <ConfirmDialog
-                    action="delete-user"
-                    name={account.username}
-                    consequence={fill(copy("ui.delete.user.consequence"), { username: account.username })}
-                    onCancel={() => setConfirmDelete(false)}
-                    onConfirm={() => {
-                      setConfirmDelete(false);
-                      if (self || busy) {
-                        return;
-                      }
-                      remove.mutate();
-                    }}
-                  />
-                ) : null}
 
             </div>
             {error ? <p className="ui-alert" role="alert">{error}</p> : null}
             <Button size="2" variant="soft" color="gray" type="button" disabled={busy} onClick={() => setOpen(false)}>{translate("Close")}</Button>
             </Dialog.Content>
           </Dialog.Root>
+          {confirmDelete ? (
+            <ConfirmDialog
+              action="delete-user"
+              name={account.username}
+              consequence={fill(copy("ui.delete.user.consequence"), { username: account.username })}
+              onCancel={() => setConfirmDelete(false)}
+              onConfirm={() => {
+                setConfirmDelete(false);
+                if (self || busy) {
+                  return;
+                }
+                remove.mutate();
+              }}
+            />
+          ) : null}
         </DataCell>
       </Table.Row>
       {error && !open ? (
