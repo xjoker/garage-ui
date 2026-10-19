@@ -119,7 +119,7 @@ The [Helm chart](https://github.com/xjoker/garage-ui/tree/dev/deploy/helm/garage
 helm upgrade --install garage-ui deploy/helm/garage-ui -f private-values.yaml
 ```
 
-The chart uses the release image by default. Override `image.repository` and `image.tag` for another image, and `persistence.size` for the UI volume. `trustedProxy: true` is appropriate only behind an ingress or proxy that overwrites `X-Forwarded-For`. The TLS settings `tls.caSecret` and `tls.insecure` apply to outgoing Garage connections, not browser HTTPS; arrange ingress TLS separately. Liveness uses the binary's health check, while readiness uses `/readyz`.
+The chart uses the release image by default. Override `image.repository` and `image.tag` for another image, and `persistence.size` for the UI volume. The volume is a PersistentVolumeClaim from the cluster's default StorageClass. The UI refuses to start on a volume that other users can write to, which includes the `0777` volumes that local-path (the k3s default) and NFS subdirectory provisioners create; see [Troubleshooting: Kubernetes volumes](Troubleshooting.md#kubernetes-volumes) before installing on such storage. `trustedProxy: true` is appropriate only behind an ingress or proxy that overwrites `X-Forwarded-For`. The TLS settings `tls.caSecret` and `tls.insecure` apply to outgoing Garage connections, not browser HTTPS; arrange ingress TLS separately. Liveness uses the binary's health check, while readiness uses `/readyz`.
 
 ## Back up and restore UI state
 

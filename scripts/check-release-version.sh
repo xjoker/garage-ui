@@ -3,8 +3,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 python3 - <<'PY'
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest.mock
 
 workflow = Path(".github/workflows/ci.yml").read_text()
@@ -167,25 +170,186 @@ with tempfile.TemporaryDirectory() as temp:
             assert "already published" in result.stderr, result.stderr
         assert not probe.exists(), "Publication reached Docker before confirming a writable draft"
 
-    # GHCR can serve a stale manifest after publishing a tag alias. Verify the
-    # retry and timeout behavior without waiting on a real registry.
-    digest_responses = iter(["sha256:version", "sha256:old", "sha256:version", "sha256:version"])
-    with unittest.mock.patch.object(alias_module, "inspect_digest", side_effect=lambda *_: next(digest_responses)):
-        with unittest.mock.patch.object(alias_module.time, "monotonic", side_effect=[0, 0, 0, 3]):
-            with unittest.mock.patch.object(alias_module.time, "sleep") as sleep:
-                assert alias_module.verify_alias("ghcr.io/example/image", "v1", "latest", timeout=10)
-                sleep.assert_called_once_with(3)
+    # The alias gate reads each tag's manifest with `imagetools inspect --raw` and hashes it.
+    # A fake docker serves scripted registry answers; a fake clock replaces the waits. The
+    # gate must pass only on equal digests read in one attempt and fail on a mismatch or on
+    # a digest it cannot read, with the reason in the log.
+    alias_source = Path("scripts/verify-image-tag-alias.py").read_text()
+    assert '"--raw"' in alias_source and "--format" not in alias_source.split('"""', 2)[2], "read the raw manifest, not a Buildx template"
+    alias_commands = root / "alias-commands"
+    alias_commands.mkdir()
+    (alias_commands / "docker").write_text(textwrap.dedent(f"""\
+        #!{sys.executable}
+        import json, os, sys, time
+        state = os.environ["ALIAS_FIXTURE"]
+        with open(state) as handle:
+            fixture = json.load(handle)
+        reference = sys.argv[-1]
+        assert sys.argv[1:-1] == ["buildx", "imagetools", "inspect", "--raw"], sys.argv
+        queue = fixture[reference.rsplit(":", 1)[1]]
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        with open(state, "w") as handle:
+            json.dump(fixture, handle)
+        if "spawn" in answer:
+            import subprocess
+            helper = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            with open(answer["spawn"], "w") as handle:
+                handle.write(str(helper.pid))
+        time.sleep(answer.get("sleep", 0))
+        sys.stdout.write(answer.get("stdout", ""))
+        sys.stderr.write(answer.get("stderr", ""))
+        sys.exit(answer.get("code", 0))
+    """))
+    (alias_commands / "docker").chmod(0o755)
 
-    times = iter([0, 0, 0, 2, 2, 4])
-    with unittest.mock.patch.object(
-        alias_module,
-        "inspect_digest",
-        side_effect=lambda reference, *_: "sha256:version" if reference.endswith(":v1") else "sha256:stale",
-    ):
-        with unittest.mock.patch.object(alias_module.time, "monotonic", side_effect=lambda: next(times, 4)):
-            with unittest.mock.patch.object(alias_module.time, "sleep") as sleep:
-                assert not alias_module.verify_alias("ghcr.io/example/image", "v1", "latest", timeout=4, poll_interval=2)
-                assert sleep.call_count == 2
+    def index(*platform_digests):
+        return json.dumps({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {"mediaType": "application/vnd.oci.image.manifest.v1+json", "digest": "sha256:" + d * 64, "size": 1,
+                 "platform": {"architecture": arch, "os": "linux"}}
+                for d, arch in zip(platform_digests, ("amd64", "arm64"))
+            ],
+        })
+    released, stale = index("a", "b"), index("c", "d")
+    released_digest = "sha256:" + hashlib.sha256(released.encode()).hexdigest()
+    stale_digest = "sha256:" + hashlib.sha256(stale.encode()).hexdigest()
+    ok = {"stdout": released}
+
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+            self.sleeps = []
+        def monotonic(self):
+            return self.now
+        def sleep(self, seconds):
+            self.sleeps.append(seconds)
+            self.now += seconds
+
+    def run_alias(fixture, timeout=30, attempt_timeout=20, extra_path=True):
+        state = root / "alias-fixture.json"
+        state.write_text(json.dumps(fixture))
+        clock = FakeClock()
+        out, err = io.StringIO(), io.StringIO()
+        path = f"{alias_commands}:{os.environ['PATH']}" if extra_path else str(root / "empty-path")
+        with unittest.mock.patch.dict(os.environ, {"ALIAS_FIXTURE": str(state), "PATH": path}), \
+                unittest.mock.patch.object(alias_module, "time", clock), \
+                unittest.mock.patch.object(alias_module, "ATTEMPT_TIMEOUT", attempt_timeout), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            passed = alias_module.verify_alias("ghcr.io/example/image", "v1", "latest", timeout=timeout)
+        return passed, out.getvalue(), err.getvalue(), clock.sleeps
+
+    # Equal digests pass on the first attempt and name the digest of the bytes served.
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [ok]})
+    assert passed and released_digest in out and not err and not sleeps, (out, err)
+
+    # A different digest keeps polling, then fails; both digests are in the failure.
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [{"stdout": stale}]}, timeout=10)
+    assert not passed and "did not converge" in err and f"version={released_digest}, alias={stale_digest}" in err, err
+    assert "unavailable" not in err and sleeps == [3, 3, 3, 1], (err, sleeps)
+
+    # A stale alias that converges within the timeout passes.
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [{"stdout": stale}, ok]})
+    assert passed and f"alias={stale_digest}" in err and sleeps == [3], (err, sleeps)
+
+    # A digest that cannot be read fails and says why. Credentials in error output are not logged.
+    denied = {"code": 1, "stderr": "ERROR: failed to authorize: Authorization: Bearer ghp_" + "x" * 36 + ": 401 Unauthorized\n"}
+    passed, out, err, sleeps = run_alias({"v1": [denied], "latest": [ok]})
+    assert not passed and "unavailable (permanent: exit status 1:" in err and "401 Unauthorized" in err, err
+    assert "ghp_" not in err and "Not retrying" in err and not sleeps, (err, sleeps)
+    # Buildx v0.25.0 printed this summary for `--format '{{.Manifest.Digest}}'`; it is not a digest.
+    summary = {"stdout": f"Name:      ghcr.io/example/image:v1\nDigest:    {released_digest}\n"}
+    passed, out, err, sleeps = run_alias({"v1": [summary], "latest": [summary]}, timeout=6)
+    assert not passed and not out and "unavailable (permanent: output is not a manifest" in err and not sleeps, (err, sleeps)
+    # Valid JSON that is not a manifest, such as a registry error document, is not a digest either.
+    errors_document = {"stdout": json.dumps({"errors": [{"code": "MANIFEST_UNKNOWN", "message": "manifest unknown"}]})}
+    passed, out, err, sleeps = run_alias({"v1": [errors_document], "latest": [errors_document]})
+    assert not passed and not out and "unavailable (permanent: unsupported manifest media type None)" in err and not sleeps, err
+    # Only the words of a 401/403 answer are permanent; a bare number elsewhere is not.
+    short_read = {"code": 1, "stderr": "ERROR: unexpected EOF after read 401 bytes\n"}
+    passed, out, err, sleeps = run_alias({"v1": [short_read, ok], "latest": [ok]})
+    assert passed and "unavailable (transient: exit status 1: ERROR: unexpected EOF after read 401 bytes)" in err, err
+    unavailable = {"code": 1, "stderr": "ERROR: unexpected status from HEAD request: 503 Service Unavailable\n"}
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [unavailable]}, timeout=20)
+    assert not passed and err.rstrip().endswith("alias=unavailable (transient: exit status 1: ERROR: unexpected status from HEAD request: 503 Service Unavailable))"), err
+    assert sleeps == [3, 6, 11], sleeps
+    helper_pid = root / "alias-helper.pid"
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [{"sleep": 5, "stdout": released, "spawn": str(helper_pid)}]}, timeout=1, attempt_timeout=0.2)
+    assert not passed and "no response within 0.2 seconds" in err, err
+    # The timeout stops the whole process group, including a helper the command started.
+    pid = int(helper_pid.read_text())
+    for _ in range(10):
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except FileNotFoundError:
+            state = "gone"
+        if state in ("gone", "Z", "X"):
+            break
+        time.sleep(0.05)
+    if state not in ("gone", "Z", "X"):
+        os.kill(pid, 9)
+    assert state in ("gone", "Z", "X"), f"helper process {pid} survived the timeout ({state})"
+    (root / "empty-path").mkdir()
+    passed, out, err, sleeps = run_alias({"v1": [ok], "latest": [ok]}, extra_path=False)
+    assert not passed and "docker is not installed" in err and not sleeps, err
+
+    # A transient error followed by a good read passes, and the failed attempt is logged.
+    passed, out, err, sleeps = run_alias({"v1": [unavailable, ok], "latest": [ok]})
+    assert passed and "Attempt 1:" in err and "503 Service Unavailable" in err and released_digest in out and sleeps == [3], (err, sleeps)
+
+    # Each redaction rule has its own cases. Every sample is caught by its rule and by no other
+    # rule on its own, so removing any one rule fails its cases.
+    redaction_cases = {
+        "bearer-basic": [
+            ("Authorization: Bearer opaqueBearerValue123", "opaqueBearerValue123"),
+            ("Authorization: Basic dXNlcjpvcGFxdWVCYXNpYw", "dXNlcjpvcGFxdWVCYXNpYw"),
+        ],
+        "key-value": [
+            ("GET /token?scope=x&token=opaqueQueryToken1", "opaqueQueryToken1"),
+            ("access_token=opaqueAccessToken1&expires=1", "opaqueAccessToken1"),
+            ("refresh_token=opaqueRefresh1", "opaqueRefresh1"),
+            ("id_token=opaqueIdToken1", "opaqueIdToken1"),
+            ("client_secret=opaqueClientSecret1", "opaqueClientSecret1"),
+            ("login with password=opaquePassword1", "opaquePassword1"),
+            ("url-encoded token%3DopaqueEncoded1", "opaqueEncoded1"),
+        ],
+        "json-field": [
+            ('{"token":"opaqueJsonToken1","expires_in":300}', "opaqueJsonToken1"),
+            ('{"access_token": "opaqueJsonToken2"}', "opaqueJsonToken2"),
+            ('{"refresh_token" : "opaque json token 3"}', "opaque json token 3"),
+        ],
+        "password-colon": [
+            ("password: opaqueColonPass1", "opaqueColonPass1"),
+            ("Password:opaqueColonPass2", "opaqueColonPass2"),
+        ],
+        "url-userinfo": [
+            ("pull https://robot:opaqueUserinfo1@ghcr.io/v2/x", "opaqueUserinfo1"),
+        ],
+        "jwt": [
+            ("expired eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"),
+        ],
+        "github-token": [
+            ("credential ghp_" + "A1b2C3d4" * 5, "ghp_" + "A1b2C3d4" * 5),
+            ("credential github_pat_" + "Z9y8X7w6" * 4, "github_pat_" + "Z9y8X7w6" * 4),
+        ],
+    }
+    for name, cases in redaction_cases.items():
+        for sample, secret in cases:
+            redacted = alias_module.summarize(sample)
+            assert secret not in redacted and "[redacted]" in redacted, (name, redacted)
+    rules = {name: (pattern, replacement) for name, pattern, replacement in alias_module.SECRETS}
+    assert set(rules) == set(redaction_cases), (sorted(rules), sorted(redaction_cases))
+    for name, cases in redaction_cases.items():
+        for sample, secret in cases:
+            pattern, replacement = rules[name]
+            assert secret not in pattern.sub(replacement, sample), (name, sample)
+            for other, (other_pattern, other_replacement) in rules.items():
+                if other != name:
+                    assert secret in other_pattern.sub(other_replacement, sample), (name, other, sample)
+    # Diagnostic text without credentials is kept.
+    plain = "ERROR: failed to fetch anonymous token: unexpected status: 503 Service Unavailable sha256:" + "a" * 64
+    assert alias_module.summarize(plain) == plain, alias_module.summarize(plain)
 
     assert "needs: gate" in workflow, "release must not run before the tag gate"
     assert "pull_request:" not in workflow and "branches:" not in workflow, "ordinary pushes and PRs must not build"
