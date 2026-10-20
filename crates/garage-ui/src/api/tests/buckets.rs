@@ -1132,6 +1132,51 @@
         http_xml(&xml)
     }
 
+    fn multipart_uploads_page_xml(
+        uploads: &[(&str, &str, &str)],
+        next: Option<(&str, &str)>,
+    ) -> String {
+        let mut xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><ListMultipartUploadsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>bkt-1</Bucket><IsTruncated>{}</IsTruncated>"#,
+            if next.is_some() { "true" } else { "false" }
+        );
+        if let Some((key, upload_id)) = next {
+            xml.push_str(&format!(
+                "<NextKeyMarker>{key}</NextKeyMarker><NextUploadIdMarker>{upload_id}</NextUploadIdMarker>"
+            ));
+        }
+        for (key, upload_id, initiated) in uploads {
+            xml.push_str(&format!(
+                "<Upload><Key>{key}</Key><UploadId>{upload_id}</UploadId><Initiated>{initiated}</Initiated></Upload>"
+            ));
+        }
+        xml.push_str("</ListMultipartUploadsResult>");
+        http_xml(&xml)
+    }
+
+    fn counted_multipart_uploads_page(page: usize) -> String {
+        const PER_PAGE: usize = 1000;
+        const LAST_PAGE: usize = 10;
+        let count = if page == LAST_PAGE { 1 } else { PER_PAGE };
+        let start = page * PER_PAGE;
+        let mut xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><ListMultipartUploadsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>bkt-1</Bucket><IsTruncated>{}</IsTruncated>"#,
+            if page < LAST_PAGE { "true" } else { "false" }
+        );
+        if page < LAST_PAGE {
+            xml.push_str(&format!(
+                "<NextKeyMarker>page-{page}</NextKeyMarker><NextUploadIdMarker>upload-page-{page}</NextUploadIdMarker>"
+            ));
+        }
+        for index in start..start + count {
+            xml.push_str(&format!(
+                "<Upload><Key>object-{index}</Key><UploadId>upload-{index}</UploadId><Initiated>2000-01-01T00:00:00Z</Initiated></Upload>"
+            ));
+        }
+        xml.push_str("</ListMultipartUploadsResult>");
+        http_xml(&xml)
+    }
+
     fn cleanup_calls(mock: &Upstream) -> Vec<UpstreamCall> {
         mock.calls()
             .into_iter()
@@ -1445,6 +1490,115 @@
         .await;
         assert_error(&denied, StatusCode::FORBIDDEN, "forbidden", "Not allowed");
         assert_eq!(abort_lines(&s3).len(), kept);
+    }
+
+    #[tokio::test]
+    async fn multipart_pages_are_listed_and_abort_all_processes_each_page_before_the_next() {
+        let events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let recorded = Arc::clone(&events);
+        let s3 = S3Mock::start(move |line| {
+            if line.starts_with("DELETE ") {
+                let upload_id = query_value(request_target(line), "uploadId")
+                    .map(percent_decode)
+                    .unwrap_or_default();
+                recorded
+                    .lock()
+                    .expect("multipart events")
+                    .push(format!("abort:{upload_id}"));
+                return delete_ok();
+            }
+            if line.contains("key-marker=first.bin") {
+                recorded
+                    .lock()
+                    .expect("multipart events")
+                    .push("list:second".to_string());
+                return multipart_uploads_page_xml(
+                    &[("second.bin", "up-second", "2000-01-02T00:00:00Z")],
+                    None,
+                );
+            }
+            recorded
+                .lock()
+                .expect("multipart events")
+                .push("list:first".to_string());
+            multipart_uploads_page_xml(
+                &[("first.bin", "up-first", "2000-01-01T00:00:00Z")],
+                Some(("first.bin", "up-first")),
+            )
+        })
+        .await;
+        let dir = crate::util::temp_dir();
+        let app = object_app(&dir, &s3.url, true).await;
+        let (session, _) = login(&app).await;
+
+        let listed = exchange(
+            &app,
+            request("GET", "/api/buckets/bkt-1/multipart", None, Some(&session)),
+        )
+        .await;
+        assert_eq!(listed.status, StatusCode::OK, "{}", listed.body);
+        let uploads = serde_json::from_str::<Value>(&listed.body).unwrap()["uploads"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(uploads.len(), 2, "{}", listed.body);
+        assert_eq!(uploads[0]["uploadId"], "up-first");
+        assert_eq!(uploads[1]["uploadId"], "up-second");
+
+        events.lock().expect("multipart events").clear();
+        let aborted = exchange(
+            &app,
+            request(
+                "DELETE",
+                "/api/buckets/bkt-1/multipart",
+                None,
+                Some(&session),
+            ),
+        )
+        .await;
+        assert_eq!(aborted.status, StatusCode::OK, "{}", aborted.body);
+        assert_eq!(
+            serde_json::from_str::<Value>(&aborted.body).unwrap(),
+            json!({ "aborted": 2 })
+        );
+        assert_eq!(
+            *events.lock().expect("multipart events"),
+            vec![
+                "list:first".to_string(),
+                "abort:up-first".to_string(),
+                "list:second".to_string(),
+                "abort:up-second".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn multipart_listing_refuses_more_than_ten_thousand_uploads() {
+        let s3 = S3Mock::start(move |line| {
+            let page = query_value(request_target(line), "key-marker")
+                .and_then(|marker| marker.strip_prefix("page-"))
+                .and_then(|page| page.parse::<usize>().ok())
+                .map(|page| page + 1)
+                .unwrap_or(0);
+            counted_multipart_uploads_page(page)
+        })
+        .await;
+        let dir = crate::util::temp_dir();
+        let app = object_app(&dir, &s3.url, true).await;
+        let (session, _) = login(&app).await;
+
+        let listed = exchange(
+            &app,
+            request("GET", "/api/buckets/bkt-1/multipart", None, Some(&session)),
+        )
+        .await;
+        assert_error(
+            &listed,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "multipart_upload_limit",
+            "Too many incomplete multipart uploads to list",
+        );
+        assert!(!listed.body.contains("object-0"), "{}", listed.body);
     }
 
     #[tokio::test]

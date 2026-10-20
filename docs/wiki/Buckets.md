@@ -50,6 +50,8 @@ For example, use a prefix such as `temporary/` to target only temporary objects,
 
 Open **Incomplete uploads** in **Settings** to inspect object keys, upload IDs, and initiation times. Enter a whole age in **Older than hours**, then choose **Clean up**. The UI refreshes the list and reports **Cleaned up** with the count Garage returns.
 
+The list refuses buckets with more than 10,000 incomplete uploads instead of returning a partial result. Use Garage's S3 tooling to inspect or reduce a bucket above that limit.
+
 Choose an age greater than the time legitimate uploads may need. Cleanup aborts old incomplete uploads, so clients cannot finish those uploads afterward. The browser provides age-based cleanup; use Garage's S3 tooling if you need to abort one particular upload ID.
 
 ## Delete an empty bucket

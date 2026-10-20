@@ -623,22 +623,35 @@ pub(crate) async fn abort_multipart_uploads(
     let tenant = tenant::scope(&app, &current.user, &id).await?;
     let aborted = match abort_target(&body)? {
         AbortTarget::All => {
-            let uploads = objects::list_multipart_uploads(&app, &id, tenant.as_ref()).await?;
             let mut aborted = 0u64;
-            for upload in uploads {
-                // One failed AbortMultipartUpload must not fail the rest, and it does not count.
-                if objects::abort_incomplete_upload(
+            let mut cursor = None;
+            loop {
+                let page = objects::list_multipart_upload_page(
                     &app,
                     &id,
-                    &upload.key,
-                    &upload.upload_id,
                     tenant.as_ref(),
+                    cursor.as_ref(),
                 )
-                .await
-                .is_ok()
-                {
-                    aborted += 1;
+                .await?;
+                for upload in page.uploads {
+                    // One failed AbortMultipartUpload must not fail the rest, and it does not count.
+                    if objects::abort_incomplete_upload(
+                        &app,
+                        &id,
+                        &upload.key,
+                        &upload.upload_id,
+                        tenant.as_ref(),
+                    )
+                    .await
+                    .is_ok()
+                    {
+                        aborted += 1;
+                    }
                 }
+                let Some(next) = page.next else {
+                    break;
+                };
+                cursor = Some(next);
             }
             aborted
         }

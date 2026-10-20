@@ -28,6 +28,8 @@ const SEARCH_PAGES: usize = 20;
 const SEARCH_PAGE_KEYS: i32 = 1000;
 const DELETE_PAGE_KEYS: i32 = 1000;
 const PARTS_IN_FLIGHT: usize = 2;
+const MULTIPART_PAGE_UPLOADS: i32 = 1000;
+const MULTIPART_UPLOAD_LIMIT: usize = 10_000;
 
 #[derive(Serialize)]
 pub struct ListPage {
@@ -121,6 +123,7 @@ enum S3Failure {
     Upstream { status: u16, message: String },
     Down,
     Local,
+    MultipartUploadLimit,
 }
 
 struct Page {
@@ -176,6 +179,16 @@ pub struct IncompleteUpload {
     pub initiated: String,
 }
 
+pub(crate) struct MultipartUploadCursor {
+    key: String,
+    upload_id: String,
+}
+
+pub(crate) struct MultipartUploadPage {
+    pub uploads: Vec<IncompleteUpload>,
+    pub next: Option<MultipartUploadCursor>,
+}
+
 pub async fn list_multipart_uploads(
     app: &App,
     bucket_id: &str,
@@ -194,59 +207,93 @@ async fn collect_multipart_uploads(
     bucket: &str,
 ) -> Result<Vec<IncompleteUpload>, S3Failure> {
     let mut found = Vec::new();
-    let mut key_marker = None;
-    let mut upload_id_marker = None;
+    let mut cursor = None;
     loop {
-        let mut request = client.list_multipart_uploads().bucket(bucket);
-        if let Some(marker) = &key_marker {
-            request = request.key_marker(marker);
+        let page = fetch_multipart_upload_page(client, bucket, cursor.as_ref()).await?;
+        if page.uploads.len() > MULTIPART_UPLOAD_LIMIT.saturating_sub(found.len()) {
+            return Err(S3Failure::MultipartUploadLimit);
         }
-        if let Some(marker) = &upload_id_marker {
-            request = request.upload_id_marker(marker);
-        }
-        let output = request.send().await.map_err(|error| {
-            classify(
-                error
-                    .raw_response()
-                    .map(|response| response.status().as_u16()),
-                error.to_string(),
-            )
-        })?;
-        for upload in output.uploads() {
-            let Some(initiated) = upload.initiated().copied() else {
-                continue;
-            };
-            let Some(key) = upload.key() else {
-                continue;
-            };
-            let Some(upload_id) = upload.upload_id() else {
-                continue;
-            };
-            found.push(IncompleteUpload {
-                key: key.to_string(),
-                upload_id: upload_id.to_string(),
-                initiated: stamp(initiated),
-            });
-        }
-        if output.is_truncated() != Some(true) {
-            break;
-        }
-        let Some(next_key) = output.next_key_marker().filter(|marker| !marker.is_empty()) else {
-            break;
+        found.extend(page.uploads);
+        let Some(next) = page.next else {
+            return Ok(found);
         };
-        let Some(next_id) = output
+        cursor = Some(next);
+    }
+}
+
+pub(crate) async fn list_multipart_upload_page(
+    app: &App,
+    bucket_id: &str,
+    tenant: Option<&BucketCredential>,
+    cursor: Option<&MultipartUploadCursor>,
+) -> Result<MultipartUploadPage, ApiError> {
+    let bucket = bucket_id.to_string();
+    let key_marker = cursor.map(|cursor| cursor.key.clone());
+    let upload_id_marker = cursor.map(|cursor| cursor.upload_id.clone());
+    drive(app, bucket.clone(), tenant.cloned(), move |client| {
+        let bucket = bucket.clone();
+        let cursor = key_marker
+            .clone()
+            .zip(upload_id_marker.clone())
+            .map(|(key, upload_id)| MultipartUploadCursor { key, upload_id });
+        async move { fetch_multipart_upload_page(&client, &bucket, cursor.as_ref()).await }
+    })
+    .await
+}
+
+async fn fetch_multipart_upload_page(
+    client: &Client,
+    bucket: &str,
+    cursor: Option<&MultipartUploadCursor>,
+) -> Result<MultipartUploadPage, S3Failure> {
+    let mut request = client
+        .list_multipart_uploads()
+        .bucket(bucket)
+        .max_uploads(MULTIPART_PAGE_UPLOADS);
+    if let Some(cursor) = cursor {
+        request = request
+            .key_marker(&cursor.key)
+            .upload_id_marker(&cursor.upload_id);
+    }
+    let output = request.send().await.map_err(|error| {
+        classify(
+            error
+                .raw_response()
+                .map(|response| response.status().as_u16()),
+            error.to_string(),
+        )
+    })?;
+    let uploads = output
+        .uploads()
+        .iter()
+        .filter_map(|upload| {
+            Some(IncompleteUpload {
+                key: upload.key()?.to_string(),
+                upload_id: upload.upload_id()?.to_string(),
+                initiated: stamp(upload.initiated().copied()?),
+            })
+        })
+        .collect();
+    let next = if output.is_truncated() == Some(true) {
+        let key = output
+            .next_key_marker()
+            .filter(|marker| !marker.is_empty())
+            .ok_or(S3Failure::Down)?;
+        let upload_id = output
             .next_upload_id_marker()
             .filter(|marker| !marker.is_empty())
-        else {
-            break;
-        };
-        if key_marker.as_deref() == Some(next_key) && upload_id_marker.as_deref() == Some(next_id) {
-            break;
+            .ok_or(S3Failure::Down)?;
+        if cursor.is_some_and(|cursor| cursor.key == key && cursor.upload_id == upload_id) {
+            return Err(S3Failure::Down);
         }
-        key_marker = Some(next_key.to_string());
-        upload_id_marker = Some(next_id.to_string());
-    }
-    Ok(found)
+        Some(MultipartUploadCursor {
+            key: key.to_string(),
+            upload_id: upload_id.to_string(),
+        })
+    } else {
+        None
+    };
+    Ok(MultipartUploadPage { uploads, next })
 }
 
 pub async fn search(
@@ -1564,6 +1611,11 @@ fn failure_error(failure: S3Failure) -> ApiError {
         S3Failure::Forbidden(message) => s3_error(403, message),
         S3Failure::Down => ApiError::unavailable("garage_unavailable", "Garage is unavailable"),
         S3Failure::Local => ApiError::internal(),
+        S3Failure::MultipartUploadLimit => ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "multipart_upload_limit",
+            "Too many incomplete multipart uploads to list",
+        ),
     }
 }
 
