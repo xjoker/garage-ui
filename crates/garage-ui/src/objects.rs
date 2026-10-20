@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,6 +14,7 @@ use aws_sdk_s3::primitives::{ByteStream, DateTime, DateTimeFormat, SdkBody};
 use axum::body::HttpBody;
 use axum::http::{HeaderValue, StatusCode};
 use serde::Serialize;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
 use crate::db;
@@ -1335,6 +1335,32 @@ struct ReplayBody {
     size: u64,
 }
 
+struct PendingSpool {
+    path: Option<PathBuf>,
+}
+
+impl PendingSpool {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+
+    fn path(&self) -> &Path {
+        self.path.as_deref().expect("pending spool path")
+    }
+
+    fn persist(mut self) -> PathBuf {
+        self.path.take().expect("pending spool path")
+    }
+}
+
+impl Drop for PendingSpool {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.as_ref() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 impl ReplayBody {
     fn new(dir: PathBuf, size: u64, body: axum::body::Body) -> Arc<Self> {
         Arc::new(Self {
@@ -1356,9 +1382,13 @@ impl ReplayBody {
                 .expect("put body")
                 .take()
                 .ok_or(S3Failure::Local)?;
-            let path = write_body(&self.dir, self.size, body).await?;
+            let pending = write_body(&self.dir, self.size, body).await?;
+            let stream = ByteStream::from_path(pending.path())
+                .await
+                .map_err(|_| S3Failure::Local)?;
+            let path = pending.persist();
             *self.path.lock().expect("put spool") = Some(path.clone());
-            path
+            return Ok(stream);
         };
         ByteStream::from_path(&path)
             .await
@@ -1377,14 +1407,20 @@ impl Drop for ReplayBody {
     }
 }
 
-async fn write_body(dir: &Path, size: u64, body: axum::body::Body) -> Result<PathBuf, S3Failure> {
+async fn write_body(
+    dir: &Path,
+    size: u64,
+    body: axum::body::Body,
+) -> Result<PendingSpool, S3Failure> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let path = dir.join(format!(
         ".put-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
-    let mut file = std::fs::File::create(&path).map_err(|_| S3Failure::Local)?;
+    let file = std::fs::File::create(&path).map_err(|_| S3Failure::Local)?;
+    let pending = PendingSpool::new(path);
+    let mut file = tokio::fs::File::from_std(file);
     let mut written = 0u64;
     let mut body = std::pin::pin!(body);
     loop {
@@ -1397,30 +1433,23 @@ async fn write_body(dir: &Path, size: u64, body: axum::body::Body) -> Result<Pat
         };
         let frame = match next {
             Ok(frame) => frame,
-            Err(_) => return Err(discard_spool(&path)),
+            Err(_) => return Err(S3Failure::Local),
         };
         let Ok(data) = frame.into_data() else {
             continue;
         };
         let room = usize::try_from(size - written).unwrap_or(usize::MAX);
         let take = data.len().min(room);
-        if file.write_all(&data[..take]).is_err() {
-            return Err(discard_spool(&path));
-        }
+        file.write_all(&data[..take])
+            .await
+            .map_err(|_| S3Failure::Local)?;
         written = written.saturating_add(take as u64);
         if take < data.len() {
             break;
         }
     }
-    if file.flush().is_err() {
-        return Err(discard_spool(&path));
-    }
-    Ok(path)
-}
-
-fn discard_spool(path: &Path) -> S3Failure {
-    let _ = std::fs::remove_file(path);
-    S3Failure::Local
+    file.flush().await.map_err(|_| S3Failure::Local)?;
+    Ok(pending)
 }
 
 fn plain_etag(raw: &str) -> String {
@@ -1905,6 +1934,61 @@ mod tests {
     use std::process::{Child, Command, Stdio};
 
     use super::*;
+
+    struct StalledBody {
+        sent: bool,
+    }
+
+    impl HttpBody for StalledBody {
+        type Data = axum::body::Bytes;
+        type Error = std::io::Error;
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+            if self.sent {
+                Poll::Pending
+            } else {
+                self.sent = true;
+                Poll::Ready(Some(Ok(http_body::Frame::data(
+                    axum::body::Bytes::from_static(b"partial"),
+                ))))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_spool_removes_its_partial_file() {
+        let dir = crate::util::temp_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        let replay = ReplayBody::new(
+            dir.clone(),
+            100,
+            axum::body::Body::new(StalledBody { sent: false }),
+        );
+        let cloned = Arc::clone(&replay);
+        let pending = tokio::spawn(async move { cloned.byte_stream().await });
+        for _ in 0..100 {
+            if std::fs::read_dir(&dir).unwrap().next().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        pending.abort();
+        let _ = pending.await;
+        drop(replay);
+
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            leftovers.is_empty(),
+            "cancelled spool files remain: {leftovers:?}"
+        );
+    }
 
     const TLS_SERVER: &str = r#"
 import http.server
