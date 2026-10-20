@@ -4,7 +4,14 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 ## Unreleased
 
-Changes on `main` after 20261019.1 that are not yet part of a release.
+No unreleased changes.
+
+## 20261020.1
+
+Requires Garage v2.3.0 or later (unchanged).
+
+- Creating or rebinding a viewer rejects malformed Garage key-info responses that omit the bucket list or a bucket permissions object, returning `502 garage_unavailable` without changing the account binding. Empty bucket lists and omitted optional write/owner flags remain valid.
+- Release asset verification works with both BSD and GNU `find`, including on macOS, while still rejecting unlisted files, hidden entries, and directories.
 
 - CI pins Docker Buildx to v0.38.0 (was v0.25.0) via `docker/setup-buildx-action` in the `build-images` and `release` jobs. v0.25.0 treated `imagetools inspect --format` strings that start with `{{.Manifest` as a plain text dump instead of a Go template (root cause of SAF-49); the template path was fixed from v0.33.0 onward.
 

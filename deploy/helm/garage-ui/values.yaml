@@ -4,7 +4,7 @@
 
 image:
   repository: ghcr.io/xjoker/garage-ui
-  tag: "20261019.1"
+  tag: "20261020.1"
   pullPolicy: IfNotPresent
 
 # Container and Service port (sets PORT). Default 3909.
