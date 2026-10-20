@@ -6,6 +6,17 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261020.2
+
+Requires Garage v2.3.0 or later (unchanged).
+
+- Security: validate a session, refresh its activity time, and read its current user within one SQLite transaction. A deleted account's cookie cannot acquire the identity of a new account that reuses its numeric ID.
+- Security: clear protected query and mutation caches when signing in, signing out, or losing authentication. Cancel old queries so a delayed response cannot restore the previous account's data.
+- Resolve API requests, uploads, object previews, downloads, and audit exports below `BASE_PATH`. Both the prefix root and its trailing-slash form serve the interface, including prefixes such as `/api`.
+- Remove partial upload spool files when receiving the body is cancelled or fails. Write spool data asynchronously.
+- Read Garage Admin API, fallback detail, and metrics responses incrementally with a 1 MiB limit, including responses without a declared length. Oversized responses fail with `502 garage_unavailable`.
+- List incomplete multipart uploads in pages of at most 1,000. The list rejects more than 10,000 entries with `503 multipart_upload_limit` instead of returning a partial result. Abort-all processes each page before requesting the next, keeping memory bounded.
+
 ## 20261020.1
 
 Requires Garage v2.3.0 or later (unchanged).
