@@ -682,17 +682,15 @@ fn key_exceeds_role() -> ApiError {
 
 #[derive(Deserialize)]
 struct BoundKeyInfo {
-    #[serde(default)]
     buckets: Vec<BoundKeyBucket>,
 }
 
 #[derive(Deserialize)]
 struct BoundKeyBucket {
-    #[serde(default)]
     permissions: BoundKeyPermissions,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
 struct BoundKeyPermissions {
     #[serde(default)]
     write: bool,

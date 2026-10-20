@@ -37,7 +37,7 @@ trap 'rm -f "$listed" "$present"' EXIT HUP INT TERM
   sed -E 's/^[0-9a-fA-F]{64} [ *]//' "$dir/SHA256SUMS"
   echo SHA256SUMS
 } | LC_ALL=C sort > "$listed"
-(cd "$dir" && find . -mindepth 1 -maxdepth 1 -printf '%P\n') | LC_ALL=C sort > "$present"
+(cd "$dir" && find . ! -name . -prune -exec basename {} \;) | LC_ALL=C sort > "$present"
 if ! cmp -s "$listed" "$present"; then
   echo "verify-release-assets: SHA256SUMS and the release assets name different files" >&2
   LC_ALL=C comm -23 "$listed" "$present" | sed 's/^/  listed in SHA256SUMS, not an asset: /' >&2

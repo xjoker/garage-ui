@@ -4,8 +4,10 @@
     const WRITE_KEY: &str = "GKwriter";
     const OWNER_KEY: &str = "GKowner";
     // GetKeyInfo replies that say nothing about the key: a server error, a 200 that is not
-    // JSON, JSON of the wrong shape, a body cut short, and a reply over the 1 MiB read limit.
-    const FAILING_KEYS: [&str; 5] = [
+    // JSON, incomplete permissions, JSON of the wrong shape, a body cut short, or too large.
+    const FAILING_KEYS: [&str; 7] = [
+        "GKmissingBuckets",
+        "GKmissingPermissions",
         "GKerror",
         "GKgarbled",
         "GKshapeless",
@@ -57,6 +59,11 @@
                     TENANT_KEY | OTHER_KEY => bound_key_info(key, false, false),
                     WRITE_KEY => bound_key_info(key, true, false),
                     OWNER_KEY => bound_key_info(key, false, true),
+                    "GKmissingBuckets" => json!({}),
+                    "GKmissingPermissions" => json!({ "buckets": [{}] }),
+                    "GKempty" => json!({ "buckets": [] }),
+                    "GKmissingWrite" => json!({ "buckets": [{ "permissions": { "owner": false } }] }),
+                    "GKmissingOwner" => json!({ "buckets": [{ "permissions": { "write": false } }] }),
                     "GKerror" => {
                         return json_http(
                             "500 Internal Server Error",
@@ -514,6 +521,16 @@
             .unwrap();
         assert_eq!(stored.role, "admin");
         assert_eq!(stored.access_key_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_viewer_can_bind_keys_without_bucket_grants_or_optional_flags() {
+        let env = bind_env().await;
+        for key in ["GKempty", "GKmissingWrite", "GKmissingOwner"] {
+            let created = create_account(&env, key, json!({ "access_key_id": key })).await;
+            assert_eq!(created.status, StatusCode::CREATED, "{key}: {}", created.body);
+            assert_eq!(stored_key(&env, id_of(&created)).await.as_deref(), Some(key));
+        }
     }
 
     #[tokio::test]

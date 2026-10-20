@@ -140,6 +140,8 @@ with tempfile.TemporaryDirectory() as temp:
     for case, change, expected in [
         ("renamed", rename_template, "listed in SHA256SUMS, not an asset: .env.example"),
         ("extra", lambda assets: (assets / "notes.txt").write_text("x\n"), "asset not listed in SHA256SUMS: notes.txt"),
+        ("hidden", lambda assets: (assets / ".notes").write_text("x\n"), "asset not listed in SHA256SUMS: .notes"),
+        ("directory", lambda assets: (assets / "extra").mkdir(), "asset not listed in SHA256SUMS: extra"),
         ("missing", lambda assets: (assets / "compose.yaml").unlink(), "listed in SHA256SUMS, not an asset: compose.yaml"),
         ("changed", lambda assets: (assets / "compose.yaml").write_text("changed\n"), "FAILED"),
     ]:
