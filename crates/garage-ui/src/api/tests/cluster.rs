@@ -1818,6 +1818,58 @@
         }
     }
 
+    struct OversizedProm {
+        url: String,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for OversizedProm {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    impl OversizedProm {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let task = tokio::spawn(async move {
+                loop {
+                    let Ok((mut socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    tokio::spawn(async move {
+                        let _ = read_prom_header(&mut socket).await;
+                        if socket
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                            )
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        let chunk = vec![b'x'; 64 * 1024];
+                        for _ in 0..17 {
+                            let head = format!("{:X}\r\n", chunk.len());
+                            if socket.write_all(head.as_bytes()).await.is_err()
+                                || socket.write_all(&chunk).await.is_err()
+                                || socket.write_all(b"\r\n").await.is_err()
+                            {
+                                return;
+                            }
+                        }
+                        std::future::pending::<()>().await;
+                    });
+                }
+            });
+            Self {
+                url: format!("http://127.0.0.1:{port}"),
+                task,
+            }
+        }
+    }
+
     async fn read_prom_header(socket: &mut tokio::net::TcpStream) -> std::io::Result<String> {
         let mut buf = Vec::new();
         let mut tmp = [0_u8; 2048];
@@ -1986,6 +2038,35 @@ block_bytes_written 5
         let missing = read_metrics(&bare, &bare_admin).await;
         assert_eq!(missing, metrics_notice());
         assert_eq!(mock.auths().len(), calls_before);
+    }
+
+    #[tokio::test]
+    async fn oversized_chunked_metrics_are_rejected_before_eof() {
+        let mock = OversizedProm::start().await;
+        let dir = crate::util::temp_dir();
+        let app = state::test_app_with(
+            &dir,
+            &[
+                ("GARAGE_ADMIN_URL", &mock.url),
+                ("GARAGE_ADMIN_TOKEN", TOKEN),
+                ("GARAGE_METRICS_TOKEN", METRICS_TOKEN),
+            ],
+            test_quota(),
+        )
+        .await;
+        let (admin, _) = login(&app).await;
+        let response = tokio::time::timeout(
+            Duration::from_secs(3),
+            exchange(&app, request("GET", "/api/metrics", None, Some(&admin))),
+        )
+        .await
+        .expect("the metrics reader waited for EOF after crossing its limit");
+        assert_error(
+            &response,
+            StatusCode::BAD_GATEWAY,
+            "garage_unavailable",
+            "Garage admin API is not reachable",
+        );
     }
 
     #[tokio::test]

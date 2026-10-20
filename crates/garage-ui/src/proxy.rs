@@ -466,7 +466,7 @@ async fn exchange_upstream(
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .cloned();
-    let bytes = upstream.bytes().await.map_err(admin_transport)?.to_vec();
+    let bytes = read_admin_body(upstream, app.settings.json_body_limit).await?;
     Ok(UpstreamBody {
         status,
         bytes,
@@ -511,6 +511,20 @@ fn garage_unconfigured() -> ApiError {
 
 fn garage_down() -> ApiError {
     ApiError::unavailable("garage_unavailable", "Garage admin API is not reachable")
+}
+
+pub(crate) async fn read_admin_body(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Vec<u8>, ApiError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(admin_transport)? {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
+            return Err(garage_down());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 // Transport errors can contain the admin URL, so exclude their text from responses.
@@ -991,13 +1005,14 @@ mod lists {
             return Err(garage_unconfigured());
         };
         let http = app.http.clone();
+        let body_limit = app.settings.json_body_limit;
         let endpoint = endpoint.to_string();
         let results = limit::fan_out(app.settings.fanout_in_flight, ids, move |id| {
             let http = http.clone();
             let base = base.clone();
             let token = token.clone();
             let endpoint = endpoint.clone();
-            async move { fetch_one(&http, &base, &token, &endpoint, &id).await }
+            async move { fetch_one(&http, &base, &token, &endpoint, &id, body_limit).await }
         })
         .await;
         let mut items = Vec::with_capacity(results.len());
@@ -1013,6 +1028,7 @@ mod lists {
         token: &str,
         endpoint: &str,
         id: &str,
+        body_limit: usize,
     ) -> Result<Value, ApiError> {
         let query = format!("id={}", percent_encode(id));
         let url = upstream_url(base, endpoint, &query);
@@ -1024,7 +1040,7 @@ mod lists {
             .map_err(admin_transport)?;
         let status =
             StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-        let bytes = upstream.bytes().await.map_err(admin_transport)?;
+        let bytes = read_admin_body(upstream, body_limit).await?;
         if !status.is_success() {
             return Err(garage_down());
         }
@@ -2944,6 +2960,90 @@ mod tests {
         );
         assert!(lines.iter().all(|line| !line.contains(ADMIN_TOKEN)));
         assert!(lines.iter().all(|line| !line.contains(CACHED_SECRET)));
+    }
+
+    struct OversizedChunked {
+        url: String,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for OversizedChunked {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    impl OversizedChunked {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let task = tokio::spawn(async move {
+                loop {
+                    let Ok((mut socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    tokio::spawn(async move {
+                        let _ = consume_request(&mut socket).await;
+                        if socket
+                            .write_all(
+                                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                            )
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        let chunk = vec![b'x'; 64 * 1024];
+                        for _ in 0..17 {
+                            let head = format!("{:X}\r\n", chunk.len());
+                            if socket.write_all(head.as_bytes()).await.is_err()
+                                || socket.write_all(&chunk).await.is_err()
+                                || socket.write_all(b"\r\n").await.is_err()
+                            {
+                                return;
+                            }
+                        }
+                        std::future::pending::<()>().await;
+                    });
+                }
+            });
+            Self {
+                url: format!("http://127.0.0.1:{port}"),
+                task,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn oversized_chunked_admin_bodies_are_rejected_before_eof() {
+        let upstream = OversizedChunked::start().await;
+        let app = app_at(&upstream.url).await;
+
+        let direct = tokio::time::timeout(
+            Duration::from_secs(3),
+            exchange_upstream(&app, "GetClusterStatus", &Method::GET, "", &[]),
+        )
+        .await
+        .expect("the admin response reader waited for EOF after crossing its limit");
+        let direct = match direct {
+            Err(error) => error,
+            Ok(_) => panic!("the oversized admin response was accepted"),
+        };
+        assert_eq!(direct.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(direct.code(), "garage_unavailable");
+
+        let fallback = tokio::time::timeout(
+            Duration::from_secs(3),
+            bucket_rows(&app, vec!["bucket-id".to_string()]),
+        )
+        .await
+        .expect("the fallback detail reader waited for EOF after crossing its limit");
+        let fallback = match fallback {
+            Err(error) => error,
+            Ok(_) => panic!("the oversized fallback detail was accepted"),
+        };
+        assert_eq!(fallback.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(fallback.code(), "garage_unavailable");
     }
 
     struct Reply {

@@ -133,7 +133,9 @@ async fn load_metrics_summary(app: &App) -> Result<MetricsSummary, ApiError> {
     };
     let url = crate::config::join(base, "metrics");
     for token in &tokens {
-        if let Some(metrics) = fetch_garage_metrics(&app.http, &url, token).await? {
+        if let Some(metrics) =
+            fetch_garage_metrics(&app.http, &url, token, app.settings.json_body_limit).await?
+        {
             return Ok(summary_from(metrics, None));
         }
     }
@@ -181,6 +183,7 @@ async fn fetch_garage_metrics(
     http: &reqwest::Client,
     url: &str,
     token: &str,
+    body_limit: usize,
 ) -> Result<Option<crate::prometheus::GarageMetrics>, ApiError> {
     let response = match http.get(url).bearer_auth(token).send().await {
         Ok(response) => response,
@@ -188,14 +191,14 @@ async fn fetch_garage_metrics(
     };
     let status = response.status();
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        let _ = response.bytes().await;
         return Ok(None);
     }
     if !status.is_success() {
-        let _ = response.bytes().await;
         return Err(garage_metrics_down());
     }
-    let bytes = response.bytes().await.map_err(|_| garage_metrics_down())?;
+    let bytes = crate::proxy::read_admin_body(response, body_limit)
+        .await
+        .map_err(|_| garage_metrics_down())?;
     let text = String::from_utf8_lossy(&bytes);
     Ok(Some(crate::prometheus::parse_garage_metrics(&text)))
 }
