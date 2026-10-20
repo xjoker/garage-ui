@@ -46,6 +46,7 @@ function renderApp() {
       <GarageTheme><App /></GarageTheme>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 function capabilitiesResponse() {
@@ -371,6 +372,84 @@ test("shows Logging out on the disabled logout button until logout fails", async
   expect(again.textContent).toBe("Log out");
   expect(screen.queryByRole("button", { name: "Logging out" })).toBeNull();
   expect(screen.getByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+});
+
+test("logout removes protected cached data before the next account can sign in", async () => {
+  document.cookie = "garage_csrf=csrf-token";
+  let signedIn = true;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/auth/status")) {
+      return new Response(JSON.stringify({
+        initialized: true,
+        authenticated: signedIn,
+        username: signedIn ? "Ada" : null,
+        role: signedIn ? "admin" : null,
+        can_download: signedIn,
+        can_share: signedIn,
+      }));
+    }
+    if (url.includes("/api/auth/logout")) {
+      signedIn = false;
+      return new Response(null, { status: 204 });
+    }
+    if (url.includes("/api/capabilities")) return capabilitiesResponse();
+    return new Response(JSON.stringify({ status: "ok", version: "test" }));
+  }));
+  const client = renderApp();
+  client.setQueryData(["buckets"], { items: [{ id: "admin-private" }], hasMore: false });
+  client.getMutationCache().build(client, { mutationKey: ["secret"], mutationFn: async () => "secret" });
+  fireEvent.click(await screen.findByRole("button", { name: "Ada · admin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+  await screen.findByRole("button", { name: "Log in" });
+  expect(client.getQueryData(["buckets"])).toBeUndefined();
+  expect(client.getMutationCache().getAll()).toHaveLength(0);
+});
+
+test("a delayed successful request from an expired session cannot repopulate a new login", async () => {
+  let releaseOld!: (response: Response) => void;
+  let username = "Ada";
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/test/old-success") {
+      return new Promise<Response>((resolve) => { releaseOld = resolve; });
+    }
+    if (url === "/api/test/expire") {
+      return new Response(JSON.stringify({ code: "unauthenticated", message: "Login required" }), { status: 401 });
+    }
+    if (url === "/api/auth/login") {
+      username = "Bea";
+      return new Response(null, { status: 204 });
+    }
+    if (url.includes("/api/auth/status")) {
+      return new Response(JSON.stringify({
+        initialized: true,
+        authenticated: true,
+        username,
+        role: "admin",
+        can_download: true,
+        can_share: true,
+      }));
+    }
+    if (url.includes("/api/capabilities")) return capabilitiesResponse();
+    return new Response(JSON.stringify({ status: "ok", version: "test" }));
+  }));
+  const client = renderApp();
+  await screen.findByRole("navigation", { name: "Sections" });
+  const old = client.fetchQuery({
+    queryKey: ["buckets", "admin-private"],
+    queryFn: () => api<{ id: string }>("/api/test/old-success"),
+  }).catch((error: unknown) => error);
+  await act(async () => { await api("/api/test/expire").catch(() => undefined); });
+  fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "Bea" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "Log in" }));
+  await screen.findByRole("button", { name: "Bea · admin" });
+  await act(async () => {
+    releaseOld(new Response(JSON.stringify({ id: "admin-private" })));
+    await old;
+  });
+  expect(client.getQueryData(["buckets", "admin-private"])).toBeUndefined();
 });
 
 test("password form shows unsaved, saving, saved, and failed", async () => {

@@ -120,6 +120,7 @@ function SetupForm() {
       api("/api/setup", { method: "POST", body: JSON.stringify(input) }),
     onSuccess: async () => {
       advanceAuthGeneration();
+      clearProtectedCache(client);
       await client.invalidateQueries({ queryKey: ["auth", "status"] });
     },
   });
@@ -163,6 +164,7 @@ function LoginForm() {
       api("/api/auth/login", { method: "POST", body: JSON.stringify(input) }),
     onSuccess: async () => {
       advanceAuthGeneration();
+      clearProtectedCache(client);
       await client.invalidateQueries({ queryKey: ["auth", "status"] });
     },
   });
@@ -412,6 +414,7 @@ function Home({ status }: { status: SessionStatus }) {
     mutationFn: () => api("/api/auth/logout", { method: "POST" }),
     onSuccess: async () => {
       advanceAuthGeneration();
+      clearProtectedCache(client);
       await client.invalidateQueries({ queryKey: ["auth", "status"] });
     },
   });
@@ -533,7 +536,18 @@ function Home({ status }: { status: SessionStatus }) {
   );
 }
 
+function isAuthStatusQuery(query: Query): boolean {
+  return query.queryKey.length === 2 && query.queryKey[0] === "auth" && query.queryKey[1] === "status";
+}
+
+function clearProtectedCache(client: QueryClient): void {
+  void client.cancelQueries();
+  client.removeQueries({ predicate: (query) => !isAuthStatusQuery(query) });
+  client.getMutationCache().clear();
+}
+
 function clearSignedIn(client: QueryClient): void {
+  clearProtectedCache(client);
   client.setQueryData<SessionStatus>(["auth", "status"], (current) => {
     if (!current) {
       return current;
