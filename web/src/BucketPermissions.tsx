@@ -1,7 +1,7 @@
 import { Button, Checkbox, Dialog, Table, TextField } from "@radix-ui/themes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
-import { api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { ConfirmDialog } from "./confirm";
 import { copy, fill, translate } from "./i18n";
@@ -30,7 +30,7 @@ const blankGrant: GrantDraft = {
 };
 
 export function bucketUrl(id: string): string {
-  return `/api/buckets/${encodeURIComponent(id)}`;
+  return apiPath(`/api/buckets/${encodeURIComponent(id)}`);
 }
 
 function permissionsUrl(bucketId: string): string {

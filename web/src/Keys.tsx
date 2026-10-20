@@ -1,7 +1,7 @@
 import { Button, Checkbox, Dialog, Select, Table, TextField } from "@radix-ui/themes";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { ConfirmDialog } from "./confirm";
 import { SecretDialog } from "./SecretDialog";
@@ -81,7 +81,7 @@ function nextOffset(offset: number, page: KeyPage): number | undefined {
 }
 
 function keyUrl(id: string): string {
-  return `/api/keys/${encodeURIComponent(id)}`;
+  return apiPath(`/api/keys/${encodeURIComponent(id)}`);
 }
 
 type KeyBucket = {
@@ -297,7 +297,7 @@ function keyListFailure(error: unknown): KeyListFailure {
 
 async function loadPage(offset: number): Promise<KeyPage> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch(`/api/keys?offset=${offset}&limit=${PAGE_LIMIT}`, {
+  const response = await fetch(apiPath(`/api/keys?offset=${offset}&limit=${PAGE_LIMIT}`), {
     credentials: "include",
   });
   const text = await response.text();

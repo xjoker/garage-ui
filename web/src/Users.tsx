@@ -1,7 +1,7 @@
 import { Button, Checkbox, Dialog, Select, Table, TextField } from "@radix-ui/themes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { ConfirmDialog } from "./confirm";
 import { isGarageDown } from "./garageDown";
 import { copy, fill, translate } from "./i18n";
@@ -260,7 +260,7 @@ function userListFailure(error: unknown): UserListFailure {
 
 async function loadUsers(offset: number): Promise<UserPage> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch(`/api/users?offset=${offset}&limit=100`, {
+  const response = await fetch(apiPath(`/api/users?offset=${offset}&limit=100`), {
     credentials: "include",
   });
   const text = await response.text();

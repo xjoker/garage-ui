@@ -10,6 +10,17 @@ export type AuthStatus = {
 
 const CSRF_EXEMPT = new Set(["/api/setup", "/api/auth/login"]);
 
+export function apiPath(path: string): string {
+  if (path !== "/api" && !path.startsWith("/api/")) {
+    return path;
+  }
+  const base = new URL(document.baseURI).pathname.replace(/\/$/, "");
+  if (base === "" || path === `${base}/api` || path.startsWith(`${base}/api/`)) {
+    return path;
+  }
+  return `${base}${path}`;
+}
+
 function csrfToken(): string {
   const found = document.cookie
     .split(";")
@@ -100,7 +111,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && !CSRF_EXEMPT.has(path)) {
     headers.set("x-csrf-token", csrfToken());
   }
-  const response = await fetch(path, {
+  const response = await fetch(apiPath(path), {
     ...init,
     method,
     headers,
@@ -124,7 +135,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 // The key goes in the query because browsers collapse `.` and `..` path segments, so a key like
 // `dir/../x` would otherwise address `x`.
 export function objectPath(bucketId: string, key: string, extra: Record<string, string> = {}): string {
-  return `/api/buckets/${encodeURIComponent(bucketId)}/object?${new URLSearchParams({ key, ...extra }).toString()}`;
+  return apiPath(`/api/buckets/${encodeURIComponent(bucketId)}/object?${new URLSearchParams({ key, ...extra }).toString()}`);
 }
 
 export function putObject(input: {

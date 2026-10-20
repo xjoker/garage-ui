@@ -1,6 +1,6 @@
 import { Button, Heading } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
-import { captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { copy, fill } from "./i18n";
 
@@ -93,7 +93,7 @@ function failureOf(error: Error): CapabilitiesFailure {
 // api() keeps only message. About also shows the response code, so read the body here.
 async function loadCapabilities(): Promise<Capabilities> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch("/api/capabilities", { credentials: "include" });
+  const response = await fetch(apiPath("/api/capabilities"), { credentials: "include" });
   const text = await response.text();
   if (!response.ok) {
     const failure = failureFrom(text, response.status);

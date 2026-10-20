@@ -52,7 +52,9 @@ pub fn router(app: App) -> Router {
     let root = if base.is_empty() {
         root.merge(site)
     } else {
-        root.route("/", get(redirect_to_base)).nest(&base, site)
+        root.route("/", get(redirect_to_base))
+            .route(&format!("{base}/"), get(assets::asset))
+            .nest(&base, site)
     };
     root.layer(middleware::from_fn_with_state(logged, request_log))
         .layer(middleware::from_fn(security_headers))
@@ -659,6 +661,16 @@ mod tests {
             .unwrap();
         assert_eq!(root.status(), StatusCode::MOVED_PERMANENTLY);
         assert_eq!(root.headers().get("location").unwrap(), "/admin");
+        let base_root = router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(base_root.status(), StatusCode::OK);
         let health = router(app.clone())
             .oneshot(
                 Request::builder()

@@ -2,7 +2,7 @@ import { Button, Table, TextField } from "@radix-ui/themes";
 import type { CopyKey } from "./copy-en";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ApiError, api } from "./api/client";
+import { ApiError, api, apiPath } from "./api/client";
 import { DataCell, Pagination } from "./ui";
 import { isGarageDown } from "./garageDown";
 import { ReadableInstantText, copy, fill, translate } from "./i18n";
@@ -113,7 +113,8 @@ async function loadAudit(filters: AuditFilters, offset: number): Promise<AuditPa
 
 async function exportAudit(filters: AuditFilters): Promise<void> {
   const url = `/api/audit/export${auditSearch(filters)}`;
-  const response = await fetch(url, {
+  const resolvedUrl = apiPath(url);
+  const response = await fetch(resolvedUrl, {
     method: "HEAD",
     credentials: "include",
   });
@@ -121,7 +122,7 @@ async function exportAudit(filters: AuditFilters): Promise<void> {
     throw new Error(fill(copy("ui.request.failed"), { status: response.status }));
   }
   const link = document.createElement("a");
-  link.href = url;
+  link.href = resolvedUrl;
   link.download = "audit.csv";
   link.hidden = true;
   document.body.append(link);

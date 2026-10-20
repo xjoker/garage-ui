@@ -1,6 +1,6 @@
 import { Button, Card, Heading } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { ApiError, api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { CompactCapacityText, useI18n, type Language, copy, fill, translate, phrase } from "./i18n";
 
@@ -312,7 +312,7 @@ function shownCode(error: unknown): string | null {
 
 async function loadStatistics(): Promise<ClusterStatistics> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch("/api/cluster/statistics", {
+  const response = await fetch(apiPath("/api/cluster/statistics"), {
     method: "GET",
     credentials: "include",
   });

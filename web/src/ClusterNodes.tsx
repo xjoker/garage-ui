@@ -1,7 +1,7 @@
 import { Button, Checkbox, DropdownMenu, Select, Table, TextField } from "@radix-ui/themes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { ApiError, api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { CapacityField } from "./CapacityField";
 import { ConfirmDialog } from "./confirm";
 import { DetailTabs } from "./DetailTabs";
@@ -75,7 +75,7 @@ async function previewFailureMessage(response: Response): Promise<string> {
 }
 
 async function previewLayout(): Promise<LayoutPreview> {
-  const response = await fetch("/api/layout/preview", {
+  const response = await fetch(apiPath("/api/layout/preview"), {
     method: "POST",
     credentials: "include",
     headers: { "x-csrf-token": csrfToken() },
@@ -159,7 +159,7 @@ function layoutHistoryFrom(parsed: unknown): LayoutHistory {
 }
 
 async function loadLayoutHistory(): Promise<LayoutHistory> {
-  const response = await fetch("/api/layout/history", {
+  const response = await fetch(apiPath("/api/layout/history"), {
     method: "GET",
     credentials: "include",
   });
@@ -587,7 +587,7 @@ function failureFrom(text: string, status: number): { message: string; code: str
 
 async function loadNodes(): Promise<ClusterStatus> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch("/api/cluster/status", { credentials: "include" });
+  const response = await fetch(apiPath("/api/cluster/status"), { credentials: "include" });
   const text = await response.text();
   if (!response.ok) {
     const failure = failureFrom(text, response.status);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { advanceAuthGeneration, api, bindUnauthenticated, captureAuthGeneration, noteUnauthenticated, putObject } from "./client";
+import { advanceAuthGeneration, api, apiPath, bindUnauthenticated, captureAuthGeneration, noteUnauthenticated, objectPath, putObject } from "./client";
 
 afterEach(() => {
   bindUnauthenticated(null);
@@ -119,4 +119,60 @@ test("other refusals keep the server's message", async () => {
   )));
   const refused = await api("/api/keys").catch((error: unknown) => error);
   expect(refused).toMatchObject({ code: "forbidden", message: "Not allowed" });
+});
+
+test("resolves API, object, and upload URLs below the document base path", () => {
+  const base = document.createElement("base");
+  base.href = "/console/";
+  document.head.append(base);
+  try {
+    expect(apiPath("/api/keys?offset=0")).toBe("/console/api/keys?offset=0");
+    expect(apiPath("/api/audit/export?user=Ada")).toBe("/console/api/audit/export?user=Ada");
+    expect(objectPath("private bucket", "dir/a.txt", { download: "1" })).toBe(
+      "/console/api/buckets/private%20bucket/object?key=dir%2Fa.txt&download=1",
+    );
+    const open = vi.fn();
+    class UploadRequest {
+      upload = { onprogress: null };
+      withCredentials = false;
+      status = 204;
+      responseText = "";
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      open = open;
+      setRequestHeader() {}
+      send() {}
+      abort() {}
+    }
+    vi.stubGlobal("XMLHttpRequest", UploadRequest);
+    putObject({
+      bucketId: "private bucket",
+      key: "dir/a.txt",
+      body: new Blob(["x"]),
+      contentType: "text/plain",
+      onProgress() {},
+    });
+    expect(open).toHaveBeenCalledWith(
+      "PUT",
+      "/console/api/buckets/private%20bucket/object?key=dir%2Fa.txt",
+    );
+  } finally {
+    base.remove();
+  }
+});
+
+
+test.each(["/api", "/api/console", "/console"])("prefixes logical API paths exactly once below %s", (prefix) => {
+  const base = document.createElement("base");
+  base.href = `${prefix}/`;
+  document.head.append(base);
+  try {
+    const expected = `${prefix}/api/auth/status`;
+    expect(apiPath("/api/auth/status")).toBe(expected);
+    expect(apiPath(expected)).toBe(expected);
+    expect(apiPath("/healthz")).toBe("/healthz");
+  } finally {
+    base.remove();
+  }
 });

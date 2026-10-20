@@ -1,7 +1,7 @@
 import { Button, Dialog, DropdownMenu, RadioGroup, Select, Table, TextField } from "@radix-ui/themes";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, captureAuthGeneration, noteUnauthenticated } from "./api/client";
+import { api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { BucketPermissions, bucketUrl } from "./BucketPermissions";
 import { DetailTabs } from "./DetailTabs";
@@ -360,7 +360,7 @@ function bucketListFailure(error: unknown): BucketListFailure {
 
 async function loadPage(offset: number): Promise<BucketPage> {
   const requestGeneration = captureAuthGeneration();
-  const response = await fetch(`/api/buckets?offset=${offset}&limit=${PAGE_LIMIT}`, {
+  const response = await fetch(apiPath(`/api/buckets?offset=${offset}&limit=${PAGE_LIMIT}`), {
     credentials: "include",
   });
   const text = await response.text();
