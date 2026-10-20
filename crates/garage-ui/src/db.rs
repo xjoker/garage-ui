@@ -39,7 +39,6 @@ impl User {
 #[derive(Clone, Debug)]
 pub struct Session {
     pub id: String,
-    pub user_id: i64,
     pub csrf_token: String,
     pub key_id: String,
     pub last_seen_at: i64,
@@ -558,16 +557,16 @@ pub async fn insert_session(
 }
 
 /// Looks up the session for a cookie token. The returned `id` is that token, not the stored digest.
+#[cfg(test)]
 pub async fn load_session(pool: &SqlitePool, id: &str) -> Result<Option<Session>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT user_id, csrf_token, key_id, last_seen_at, expires_at FROM sessions WHERE id = ?",
+        "SELECT csrf_token, key_id, last_seen_at, expires_at FROM sessions WHERE id = ?",
     )
     .bind(session_digest(id))
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|row| Session {
         id: id.to_string(),
-        user_id: row.get("user_id"),
         csrf_token: row.get("csrf_token"),
         key_id: row.get("key_id"),
         last_seen_at: row.get("last_seen_at"),
@@ -575,13 +574,71 @@ pub async fn load_session(pool: &SqlitePool, id: &str) -> Result<Option<Session>
     }))
 }
 
-pub async fn touch_session(pool: &SqlitePool, id: &str, now: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
-        .bind(now)
-        .bind(session_digest(id))
-        .execute(pool)
-        .await?;
-    Ok(())
+/// Atomically validates and touches a session together with its current user identity.
+/// The first UPDATE takes SQLite's writer lock, so a deleted session cannot be paired with a
+/// different user that later reuses the same numeric ID.
+pub async fn authenticate_session(
+    pool: &SqlitePool,
+    id: &str,
+    now: i64,
+    idle_seconds: i64,
+    key_id: &str,
+) -> Result<Option<(Session, User)>, sqlx::Error> {
+    let stored_id = session_digest(id);
+    let mut transaction = pool.begin().await?;
+    let session = sqlx::query(
+        "UPDATE sessions SET last_seen_at = ?
+         WHERE id = ? AND key_id = ? AND expires_at > ? AND last_seen_at >= ?
+         RETURNING user_id, csrf_token, key_id, last_seen_at, expires_at",
+    )
+    .bind(now)
+    .bind(&stored_id)
+    .bind(key_id)
+    .bind(now)
+    .bind(now.saturating_sub(idle_seconds))
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(session) = session else {
+        sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(&stored_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        return Ok(None);
+    };
+    let user_id: i64 = session.get("user_id");
+    let user = sqlx::query(
+        "SELECT id, username, password_hash, role, can_download, can_share, disabled, access_key_id
+         FROM users WHERE id = ?",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(user) = user.map(|row| user_from_row(&row)) else {
+        sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(&stored_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        return Ok(None);
+    };
+    if user.disabled {
+        sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+            .bind(user.id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        return Ok(None);
+    }
+    let session = Session {
+        id: id.to_string(),
+        csrf_token: session.get("csrf_token"),
+        key_id: session.get("key_id"),
+        last_seen_at: session.get("last_seen_at"),
+        expires_at: session.get("expires_at"),
+    };
+    transaction.commit().await?;
+    Ok(Some((session, user)))
 }
 
 pub async fn delete_session(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {

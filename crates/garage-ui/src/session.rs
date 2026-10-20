@@ -60,32 +60,15 @@ pub async fn authenticate(app: &App, headers: &HeaderMap, ip: &str) -> Result<Cu
     let Some(session_id) = cookie(headers, "garage_session") else {
         return Err(ApiError::unauthorized());
     };
-    let Some(session) = db::load_session(&app.db, session_id)
-        .await
-        .map_err(|_| ApiError::internal())?
-    else {
-        return Err(ApiError::unauthorized());
-    };
     let now = now_secs();
     let idle = i64::try_from(app.settings.session_idle.as_secs()).unwrap_or(i64::MAX);
-    let expired = now >= session.expires_at || now.saturating_sub(session.last_seen_at) > idle;
-    if expired || session.key_id != *app.key_id {
-        let _ = db::delete_session(&app.db, &session.id).await;
-        return Err(ApiError::unauthorized());
-    }
-    db::touch_session(&app.db, &session.id, now)
-        .await
-        .map_err(|_| ApiError::internal())?;
-    let Some(user) = db::find_user_by_id(&app.db, session.user_id)
-        .await
-        .map_err(|_| ApiError::internal())?
+    let Some((session, user)) =
+        db::authenticate_session(&app.db, session_id, now, idle, app.key_id.as_str())
+            .await
+            .map_err(|_| ApiError::internal())?
     else {
         return Err(ApiError::unauthorized());
     };
-    if user.disabled {
-        let _ = db::delete_user_sessions(&app.db, user.id).await;
-        return Err(ApiError::unauthorized());
-    }
     Ok(Current {
         session_id: session.id,
         csrf_token: session.csrf_token,
@@ -99,7 +82,7 @@ pub async fn issue_session(
     proof: &User,
     replace_id: Option<&str>,
 ) -> Result<(db::Session, User), ApiError> {
-    let session = new_session(app, proof.id)?;
+    let session = new_session(app)?;
     let user = db::insert_login_session(&app.db, proof, &session, replace_id)
         .await
         .map_err(|_| ApiError::internal())?
@@ -107,12 +90,11 @@ pub async fn issue_session(
     Ok((session, user))
 }
 
-pub(crate) fn new_session(app: &App, user_id: i64) -> Result<db::Session, ApiError> {
+pub(crate) fn new_session(app: &App) -> Result<db::Session, ApiError> {
     let now = now_secs();
     let ttl = app.settings.session_absolute.as_secs();
     Ok(db::Session {
         id: hex_encode(&random_bytes(32).map_err(|_| ApiError::internal())?),
-        user_id,
         csrf_token: hex_encode(&random_bytes(32).map_err(|_| ApiError::internal())?),
         key_id: app.key_id.to_string(),
         last_seen_at: now,
@@ -187,5 +169,80 @@ mod tests {
         assert!(!csrf_exempt(&Method::PUT, "/api/setup"));
         assert!(!csrf_exempt(&Method::POST, "/api/users"));
         assert!(!csrf_exempt(&Method::GET, "/api/auth/login"));
+    }
+
+    #[tokio::test]
+    async fn deleted_cookie_cannot_authenticate_a_reused_user_id() {
+        let dir = crate::util::temp_dir();
+        let app = crate::state::test_app(&dir).await;
+        let user_id = db::insert_user(
+            &app.db,
+            "old-viewer",
+            "unused",
+            "viewer",
+            false,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let now = now_secs();
+        db::insert_session(
+            &app.db,
+            "old-cookie",
+            user_id,
+            "csrf",
+            &app.key_id,
+            now,
+            now + 3600,
+        )
+        .await
+        .unwrap();
+
+        let mut writer = app.db.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let copy = app.clone();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_static("garage_session=old-cookie"),
+        );
+        let pending = tokio::spawn(async move { authenticate(&copy, &headers, "127.0.0.1").await });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            !pending.is_finished(),
+            "authentication must be waiting on the writer lock"
+        );
+
+        sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(user_id)
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO users(username, password_hash, role, created_at) \
+             VALUES ('replacement-admin', 'unused', 'admin', ?)",
+        )
+        .bind(now)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+        sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
+        drop(writer);
+
+        let outcome = pending.await.unwrap();
+        assert!(
+            outcome.is_err(),
+            "the deleted cookie authenticated the replacement user: {:?}",
+            outcome.ok().map(|current| current.user.username)
+        );
     }
 }

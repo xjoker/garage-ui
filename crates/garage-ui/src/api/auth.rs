@@ -318,7 +318,7 @@ pub(crate) async fn change_password(
     }
     let hash = hash_password(&body.new_password, app.settings.bcrypt_cost).await?;
     let _guard = app.write.lock().await;
-    let replacement = session::new_session(&app, current.user.id)?;
+    let replacement = session::new_session(&app)?;
     let user = db::change_user_password(
         &app.db,
         current.user.id,
@@ -495,7 +495,7 @@ mod login_proof_tests {
     }
 
     async fn existing_session(app: &App, user_id: i64) -> db::Session {
-        let session = session::new_session(app, user_id).unwrap();
+        let session = session::new_session(app).unwrap();
         db::insert_session(
             &app.db,
             &session.id,
