@@ -1,8 +1,8 @@
 import type { CopyKey } from "./copy-en";
 
 export const zh = {
-  "objects.key.help": "选择对这个存储桶具有读写权限的 S3 Key。选择 Key 不会自动授予权限。",
-  "objects.no.keys.help": "先创建 S3 Key，并授予它对这个存储桶的读写权限，再返回这里选择。",
+  "objects.key.help": "未自动找到可用的 S3 Key。请为已有 Key 授予这个存储桶的读写权限，然后重试。选择 Key 不会自动授予权限。",
+  "objects.no.keys.help": "先创建 S3 Key，并授予它对这个存储桶的读写权限，然后重试，UI 会自动识别。",
   "objects.bucket.permissions": "存储桶权限",
   "objects.no.usable.key": "这个存储桶没有可用的读写 S3 Key",
   "ux.bucketQuotas": "配额",

@@ -6,6 +6,12 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261022.2
+
+- Automatically find an existing, non-expired S3 key with read and write access to each bucket when no project-wide key or explicit bucket selection is configured. No manual selection or new Garage permission grant is required.
+- Preserve configured credential precedence, tenant-bound keys, and UI role restrictions. Tenant requests never fall back to another key.
+- Update object-access guidance and deployment examples for automatic key discovery.
+
 ## 20261022.1
 
 Requires Garage v2.3.0 or later (unchanged).

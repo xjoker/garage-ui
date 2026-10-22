@@ -100,7 +100,7 @@ Optional settings go in a `.env` beside `compose.yaml`:
 ```dotenv
 PORT=3909
 COOKIE_SECURE=false
-GARAGE_UI_VERSION=20261022.1
+GARAGE_UI_VERSION=20261022.2
 # Set only when recipients can reach S3 at this address:
 # S3_PUBLIC_ENDPOINT_URL=https://s3.example.com
 ```
@@ -153,7 +153,7 @@ Create a private `.env` with the four Garage connection settings and `COOKIE_SEC
 docker run -d --name garage-ui --restart unless-stopped \
   --read-only --tmpfs /tmp --env-file .env \
   -p 127.0.0.1:3909:3909 -v garage-ui-data:/data \
-  ghcr.io/xjoker/garage-ui:20261022.1
+  ghcr.io/xjoker/garage-ui:20261022.2
 ```
 
 Open [http://localhost:3909](http://localhost:3909). For HTTPS use `COOKIE_SECURE=true`. Add `--network` with Garage's network name when connecting to another container. On Linux, add `--add-host host.docker.internal:host-gateway` to reach a host service by that name.

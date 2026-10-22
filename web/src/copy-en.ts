@@ -1,6 +1,6 @@
 export const en = {
-  "objects.key.help": "Select an S3 key with read and write access to this bucket. Selecting a key does not grant permissions.",
-  "objects.no.keys.help": "Create an S3 key, grant it read and write access to this bucket, then return here to select it.",
+  "objects.key.help": "No usable S3 key was found automatically. Grant an existing key read and write access to this bucket, then retry. Selecting a key does not grant permissions.",
+  "objects.no.keys.help": "Create an S3 key, grant it read and write access to this bucket, then retry. The UI will find it automatically.",
   "objects.bucket.permissions": "Bucket permissions",
   "objects.no.usable.key": "This bucket has no usable read-write key",
   "ux.bucketQuotas": "Quotas",

@@ -14,7 +14,7 @@ Acceptance: Create a bucket that has only a local alias. Browse, upload, and del
 
 Requirement:
 
-1. The S3 credentials used to browse objects prefer a key reserved for this project (configurable). Only when that key is absent does an administrator explicitly choose one for the bucket. The product no longer implicitly picks an arbitrary read-write key.
+1. For accounts without a bound tenant key, S3 credentials prefer the configured project key, then an administrator's saved per-bucket selection. When neither is set, discover a non-expired key already granted read and write access to that bucket, in access key ID order. Discovery never creates keys or grants permissions. A key-bound tenant always uses only its own credential and never enters discovery.
 2. When no usable credential can be found, do not cache an empty result. Return a clear error at once (412, with the message "This bucket has no usable read-write key").
 3. The credential-cache TTL is at most 60 seconds. After this project runs `AllowBucketKey`, `DenyBucketKey`, `DeleteKey`, or `UpdateKey`, clear the related cache immediately.
 4. When S3 returns 403, clear the cache and retry once.

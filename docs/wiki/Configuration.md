@@ -38,7 +38,7 @@ Secret files must be readable by the UI process. Token files have trailing line 
 
 Set both sides of the project S3 key or leave both unset. Each file variable takes priority over its corresponding value variable. A project-wide key takes priority over a selected per-bucket key. It still needs the relevant S3 permissions on each bucket.
 
-Without a project key, the UI can use Garage key credentials and retain the selected key ID for a bucket. If **Bucket key** appears, an administrator selects a key and chooses **Use this key**. See [Keys and permissions](Keys-and-permissions.md).
+Without a project key or saved per-bucket selection, the UI automatically finds an existing, non-expired key with read and write access to that bucket. No per-bucket setup is required. If none is available, grant an existing key access and retry. Key-bound tenant accounts always use their own key. See [Keys and permissions](Keys-and-permissions.md).
 
 On Garage v2.3.0 and v2.4.1, explicitly set `S3_ENDPOINT_URL` and `S3_REGION`; those versions lack the newer endpoint-discovery fields. Share links additionally require the public S3 address. A private container hostname in that setting produces links that recipients cannot reach.
 

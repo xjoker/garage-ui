@@ -1725,7 +1725,7 @@ test("a bucket without keys explains how to restore access instead of showing an
     return json({ code: "no_usable_key", message: "This bucket has no usable read-write key" }, 412);
   }));
   renderObjects("bkt-1", { canWrite: true, canTransfer: true, canManage: true });
-  expect(await screen.findByText("Create an S3 key, grant it read and write access to this bucket, then return here to select it.")).toBeTruthy();
+  expect(await screen.findByText("Create an S3 key, grant it read and write access to this bucket, then retry. The UI will find it automatically.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Create key" }).getAttribute("href")).toBe("#keys");
   expect(screen.getByRole("link", { name: "Bucket permissions" }).getAttribute("href")).toBe("#bucket/bkt-1/permissions");
   expect(screen.queryByRole("combobox", { name: "Bucket key" })).toBeNull();

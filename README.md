@@ -23,7 +23,7 @@ Replace the Admin/S3 URLs, admin token, and region with your Garage settings:
 ```yaml
 services:
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.1
+    image: ghcr.io/xjoker/garage-ui:20261022.2
     restart: unless-stopped
     ports:
       - "127.0.0.1:3909:3909"
@@ -73,7 +73,7 @@ services:
       - ./garage-ui-data:/data
 
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.1
+    image: ghcr.io/xjoker/garage-ui:20261022.2
     restart: unless-stopped
     logging: *default-logging
     depends_on:
@@ -110,7 +110,7 @@ This example initializes a **new single-node Garage** without data redundancy. U
 docker compose up -d
 ```
 
-Open **[http://localhost:3909](http://localhost:3909)** and create your first UI administrator. Create a bucket and an S3 key, grant the key access to the bucket, and open **Objects** to upload a file.
+Open **[http://localhost:3909](http://localhost:3909)** and create your first UI administrator. Existing buckets automatically use an available S3 key with read and write access. For a new bucket, create an S3 key, grant it access, and open **Objects** to upload a file.
 
 The examples use local HTTP. For remote access, configure [HTTPS](docs/wiki/Deployment.md#serve-the-ui-over-https) and change `COOKIE_SECURE` to `"true"`. For a remote Docker host, use `ssh -L 3909:127.0.0.1:3909 your-server` to access the local port.
 

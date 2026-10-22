@@ -338,6 +338,11 @@ pub async fn fetch_key_secret(app: &App, id: &str) -> Result<Response<Body>, Api
     send(app, "GetKeyInfo", &Method::GET, &query, &[]).await
 }
 
+pub async fn fetch_bucket_info(app: &App, id: &str) -> Result<Response<Body>, ApiError> {
+    let query = format!("id={}", percent_encode(id));
+    send(app, "GetBucketInfo", &Method::GET, &query, &[]).await
+}
+
 // Existence check for a key. Garage returns the secret only when asked, so this never does.
 pub async fn fetch_key_info(app: &App, id: &str) -> Result<Response<Body>, ApiError> {
     let query = format!("id={}", percent_encode(id));

@@ -31,8 +31,10 @@ In **Danger zone**, choose **Delete key** and confirm its ID. Clients using the 
 
 ## Choose the key used for object operations
 
-The UI server signs S3 operations; it does not send the Garage admin token to the browser. If an object page asks for **Bucket key**, an administrator chooses an eligible key and selects **Use this key**. The UI stores the key ID in its database and obtains its secret from Garage when needed.
+The UI server signs S3 operations; it does not send the Garage admin token to the browser. Without configured S3 credentials or a saved bucket selection, it automatically finds an existing, non-expired key with read and write access to the bucket. Candidates are checked in access key ID order. No per-bucket selection is required, and discovery never creates keys or changes Garage permissions.
+
+If no usable key exists, grant an existing key read and write access and retry. An administrator can still select **Bucket key → Use this key** explicitly. The UI stores that selected key ID in its database and obtains its secret from Garage when needed.
 
 A configured project-wide S3 key takes priority over the per-bucket selection. Ensure the selected or project key has the appropriate bucket grants. A read-only key can support reads but cannot upload or delete objects. UI administrator permission does not bypass Garage's S3 grant checks.
 
-Viewer accounts cannot change the server's bucket-key binding. Ask an administrator to fix that binding if browsing or downloads fail for all viewers of a bucket. See [Configuration](Configuration.md#connect-object-operations).
+Viewer accounts cannot change the server's bucket-key binding or write objects. Accounts bound to an S3 key always use that key and its bucket permissions; automatic discovery never substitutes another key for them. See [Configuration](Configuration.md#connect-object-operations).

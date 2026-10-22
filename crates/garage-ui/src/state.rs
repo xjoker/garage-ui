@@ -1248,8 +1248,6 @@ server.serve_forever()
     }
 }
 
-// read_write_keys is not used for selection. Non-test builds do not read the field.
-#[allow(dead_code)]
 pub mod credentials {
     use std::collections::HashMap;
 
@@ -1403,6 +1401,7 @@ pub mod credentials {
             }
         }
 
+        #[cfg(test)]
         pub fn read<T>(
             &mut self,
             bucket_id: &str,
@@ -1448,7 +1447,12 @@ pub mod credentials {
         if let Some(key) = &sources.explicit_key {
             return Ok(key.clone());
         }
-        Err(NoUsableKey)
+        sources
+            .read_write_keys
+            .iter()
+            .min_by_key(|key| key.access_key_id())
+            .cloned()
+            .ok_or(NoUsableKey)
     }
 
     #[cfg(test)]
@@ -1463,7 +1467,7 @@ pub mod credentials {
             CredentialSources {
                 project_key: None,
                 explicit_key: Some(cred(id, "secret")),
-                read_write_keys: vec![cred("rw-ignored", "nope")],
+                read_write_keys: vec![cred("rw-discovered", "discovered-secret")],
             }
         }
 
@@ -1481,12 +1485,25 @@ pub mod credentials {
         }
 
         #[test]
+        fn discovered_key_is_used_when_no_configured_key_exists() {
+            let mut cache = CredentialCache::new(60);
+            let discovered = CredentialSources {
+                project_key: None,
+                explicit_key: None,
+                read_write_keys: vec![cred("ZKEY", "z-secret"), cred("AKEY", "a-secret")],
+            };
+            let got = cache.resolve("photos", 0, &discovered).unwrap();
+            assert_eq!(got.access_key_id(), "AKEY");
+            assert_eq!(got.secret_key(), "a-secret");
+        }
+
+        #[test]
         fn missing_key_is_not_stored() {
             let mut cache = CredentialCache::new(60);
             let missing = CredentialSources {
                 project_key: None,
                 explicit_key: None,
-                read_write_keys: vec![cred("RW", "rw-secret")],
+                read_write_keys: vec![],
             };
             let err = cache.resolve("photos", 0, &missing).unwrap_err();
             assert_eq!(err.status(), 412);
@@ -1517,11 +1534,14 @@ pub mod credentials {
                 bucket_id: "photos".into(),
             });
             photos.explicit_key = None;
-            photos.read_write_keys = vec![cred("KEYA", "secret"), cred("OTHER", "secret")];
-            let err = cache.resolve("photos", 11, &photos).unwrap_err();
-            assert_eq!(err.status(), 412);
-            assert_eq!(err.code(), "no_usable_key");
-            assert_eq!(err.message(), "This bucket has no usable read-write key");
+            photos.read_write_keys = vec![cred("OTHER", "secret")];
+            assert_eq!(
+                cache
+                    .resolve("photos", 11, &photos)
+                    .unwrap()
+                    .access_key_id(),
+                "OTHER"
+            );
             other.explicit_key = Some(cred("CHANGED", "secret"));
             assert_eq!(
                 cache.resolve("other", 11, &other).unwrap().access_key_id(),
@@ -1553,7 +1573,7 @@ pub mod credentials {
             let mut sources = CredentialSources {
                 project_key: None,
                 explicit_key: None,
-                read_write_keys: vec![cred("RW", "rw-secret")],
+                read_write_keys: vec![],
             };
             let err = cache.resolve("photos", 0, &sources).unwrap_err();
             assert_eq!(err.status(), 412);

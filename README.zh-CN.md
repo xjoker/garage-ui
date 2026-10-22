@@ -25,7 +25,7 @@
 ```yaml
 services:
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.1
+    image: ghcr.io/xjoker/garage-ui:20261022.2
     restart: unless-stopped
     ports:
       - "127.0.0.1:3909:3909"
@@ -75,7 +75,7 @@ services:
       - ./garage-ui-data:/data
 
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.1
+    image: ghcr.io/xjoker/garage-ui:20261022.2
     restart: unless-stopped
     logging: *default-logging
     depends_on:
@@ -112,7 +112,7 @@ networks:
 docker compose up -d
 ```
 
-访问 **[http://localhost:3909](http://localhost:3909)**，创建第一个 UI 管理员。创建存储桶和 S3 密钥，授予密钥访问该存储桶的权限，然后打开**对象（Objects）**上传文件。
+访问 **[http://localhost:3909](http://localhost:3909)**，创建第一个 UI 管理员。已有存储桶会自动使用具有读写权限的可用 S3 Key。新建存储桶时，创建 S3 Key 并授予访问权限，然后打开**对象（Objects）**上传文件。
 
 示例使用本地 HTTP。远程访问请配置 [HTTPS](docs/wiki/Deployment.md#serve-the-ui-over-https)，并将 `COOKIE_SECURE` 改为 `"true"`。Docker 在远程服务器上时，可通过 `ssh -L 3909:127.0.0.1:3909 your-server` 访问本机端口。
 

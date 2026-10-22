@@ -38,7 +38,7 @@ for (const width of [360, 1280]) {
       await page.getByRole("dialog", { name: "Create bucket", exact: true }).getByRole("button", { name: "Cancel", exact: true }).click();
       await expect(page.getByRole("region", { name: "Buckets" }).getByText(alias, { exact: true })).toBeVisible();
 
-      // Access grants prepare a real S3 upload without making this smoke depend on the key editor.
+      // Existing bucket grants must be sufficient; no per-bucket UI credential is selected.
       const key = await page.request.post("/api/keys", { headers, data: { name: alias } });
       expect(key.status()).toBe(200);
       keyId = (await key.json() as { accessKeyId: string }).accessKeyId;
@@ -47,10 +47,6 @@ for (const width of [360, 1280]) {
         headers,
         data: { accessKeyId: keyId, permissions: { read: true, write: true, owner: true } },
       })).status()).toBe(200);
-      expect((await page.request.put(`/api/buckets/${bucketId}/credential`, {
-        headers, data: { access_key_id: keyId },
-      })).status()).toBe(200);
-
       await page.getByRole("button", { name: `Open objects (${bucketId})`, exact: true }).click();
       const objects = page.getByRole("region", { name: "Objects", exact: true });
       await expect(objects.getByText("There are no objects. Upload the first object.", { exact: true })).toBeVisible();

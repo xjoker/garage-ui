@@ -1630,10 +1630,15 @@ async fn sources(app: &App, bucket_id: &str) -> CredentialSources {
     } else {
         explicit_credential(app, bucket_id).await
     };
+    let read_write_keys = if project_key.is_none() && explicit_key.is_none() {
+        discovered_credentials(app, bucket_id).await
+    } else {
+        Vec::new()
+    };
     CredentialSources {
         project_key,
         explicit_key,
-        read_write_keys: Vec::new(),
+        read_write_keys,
     }
 }
 
@@ -1658,6 +1663,95 @@ async fn key_secret(app: &App, access_key_id: &str) -> Option<String> {
         .and_then(serde_json::Value::as_str)
         .filter(|secret| !secret.is_empty())
         .map(str::to_string)
+}
+
+async fn discovered_credentials(app: &App, bucket_id: &str) -> Vec<BucketCredential> {
+    let Ok(response) = proxy::fetch_bucket_info(app, bucket_id).await else {
+        return Vec::new();
+    };
+    if !response.status().is_success() {
+        return Vec::new();
+    }
+    let Ok(bytes) = axum::body::to_bytes(response.into_body(), 1024 * 1024).await else {
+        return Vec::new();
+    };
+    let Ok(info) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return Vec::new();
+    };
+    let Some(keys) = info.get("keys").and_then(serde_json::Value::as_array) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<_> = keys
+        .iter()
+        .filter(|key| key_has_read_write_access(key))
+        .filter_map(|key| key.get("accessKeyId").and_then(serde_json::Value::as_str))
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect();
+    ids.sort();
+    ids.dedup();
+
+    for id in ids {
+        let Some(credential) = discovered_credential(app, bucket_id, &id).await else {
+            continue;
+        };
+        return vec![credential];
+    }
+    Vec::new()
+}
+
+async fn discovered_credential(
+    app: &App,
+    bucket_id: &str,
+    access_key_id: &str,
+) -> Option<BucketCredential> {
+    let response = proxy::fetch_key_secret(app, access_key_id).await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .ok()?;
+    let info: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    credential_from_key_info(bucket_id, access_key_id, &info)
+}
+
+fn credential_from_key_info(
+    bucket_id: &str,
+    access_key_id: &str,
+    info: &serde_json::Value,
+) -> Option<BucketCredential> {
+    if info.get("accessKeyId").and_then(serde_json::Value::as_str) != Some(access_key_id)
+        || info.get("expired").and_then(serde_json::Value::as_bool) != Some(false)
+        || !info
+            .get("buckets")
+            .and_then(serde_json::Value::as_array)?
+            .iter()
+            .any(|bucket| {
+                bucket.get("id").and_then(serde_json::Value::as_str) == Some(bucket_id)
+                    && key_has_read_write_access(bucket)
+            })
+    {
+        return None;
+    }
+    let secret = info
+        .get("secretAccessKey")
+        .and_then(serde_json::Value::as_str)
+        .filter(|secret| !secret.is_empty())?;
+    Some(BucketCredential::new(access_key_id, secret))
+}
+
+fn key_has_read_write_access(value: &serde_json::Value) -> bool {
+    value
+        .get("permissions")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|permissions| {
+            permissions.get("read").and_then(serde_json::Value::as_bool) == Some(true)
+                && permissions
+                    .get("write")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+        })
 }
 
 fn s3_client(
@@ -1986,6 +2080,46 @@ mod tests {
     use std::process::{Child, Command, Stdio};
 
     use super::*;
+
+    #[test]
+    fn discovered_credentials_require_a_current_read_write_key_for_this_bucket() {
+        let info = |id: &str, expired: bool, read: bool, write: bool| {
+            serde_json::json!({
+                "accessKeyId": id,
+                "secretAccessKey": format!("{id}-secret"),
+                "expired": expired,
+                "buckets": [{
+                    "id": "photos",
+                    "permissions": { "read": read, "write": write }
+                }]
+            })
+        };
+        assert!(
+            credential_from_key_info("photos", "expired", &info("expired", true, true, true))
+                .is_none()
+        );
+        assert!(
+            credential_from_key_info(
+                "photos",
+                "read-only",
+                &info("read-only", false, true, false)
+            )
+            .is_none()
+        );
+        assert!(
+            credential_from_key_info(
+                "photos",
+                "write-only",
+                &info("write-only", false, false, true)
+            )
+            .is_none()
+        );
+        let credential =
+            credential_from_key_info("photos", "usable", &info("usable", false, true, true))
+                .unwrap();
+        assert_eq!(credential.access_key_id(), "usable");
+        assert_eq!(credential.secret_key(), "usable-secret");
+    }
 
     struct StalledBody {
         sent: bool,
