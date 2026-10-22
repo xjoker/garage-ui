@@ -11,7 +11,7 @@ Capture the visible error message/code, the affected task, and the UI/Garage ver
 | Bootstrap import error | Set username and bcrypt hash together; use a valid username and hash |
 | Object-key configuration error | Set both S3 access key ID and secret, or neither |
 | Authentication-disabled setting | Remove `AUTH_DISABLED`, `DISABLE_AUTH`, and `GARAGE_UI_NO_AUTH` entirely |
-| Data directory not writable | Make `DATA_DIR` or its mounted volume writable by the runtime user |
+| Data directory not writable | The image runs as UID/GID 65532. Give its dedicated data directory to that user, or use [automatic Docker permission initialization](#initialize-docker-data-permissions-automatically) |
 | `data directory … is writable by other users` (or `by its group`) at startup | The UI could not restrict `DATA_DIR` to `0700`, and other accounts could replace its database or session key. Give the directory to the runtime user (UID 65532 in the image), or remove group and other write permission (`chmod go-w`). A group-writable directory is accepted only when its group is the runtime user's effective (primary) group, as with a Kubernetes `fsGroup` equal to `runAsGroup`; a supplementary group does not count. A Kubernetes volume created with mode `0777`, for example by local-path or NFS provisioners, is refused even with the Helm chart. See [The data directory is refused at startup](#the-data-directory-is-refused-at-startup) |
 | Listener error | `HOST` must be an IP address, `PORT` must be a TCP port from 1 to 65535 (default 3909), and that port must be available |
 
@@ -41,6 +41,29 @@ stat -c 'owner=%u group=%g mode=%a' /path/to/data
 ```
 
 The image and the Helm chart run as UID 65532 with primary group 65532 (`runAsUser`, `runAsGroup`, and `fsGroup` are all 65532 in the chart). With Docker, the identity is the image user or `--user UID:GID`. In Kubernetes, it is the pod's `runAsUser` and `runAsGroup`. The directory is refused if it is not owned by that UID, or has the sticky bit (an odd first digit in a four-digit mode, such as `1777`), or changing its mode fails, and it is writable by others or by a group other than that GID.
+
+### Initialize Docker data permissions automatically
+
+A host directory created by Docker or a deployment panel may belong to root. The non-root UI cannot change that ownership. Merge a one-shot init service into Compose so it prepares the directory before the UI starts:
+
+```yaml
+services:
+  garage-ui-init:
+    image: alpine:3.22
+    user: "0:0"
+    network_mode: none
+    command: ["sh", "-c", "chown 65532:65532 /data && chmod 0700 /data"]
+    volumes:
+      - ./garage-ui-data:/data
+  garage-ui:
+    depends_on:
+      garage-ui-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./garage-ui-data:/data
+```
+
+Keep the UI service's existing image, environment, ports, and other dependencies. Both services must mount the **same dedicated UI directory**; substitute your actual host path in both places. Initialization changes only the directory owner and mode, without recursively changing existing files. The UI keeps running as UID 65532. Read-only mounts or storage that rejects ownership changes must be corrected on the host or storage server.
 
 ### Kubernetes volumes
 
@@ -96,7 +119,7 @@ Session expiry, a password reset, account disablement, or a permission change ca
 
 ## Garage is unavailable or operations are disabled
 
-Check the admin URL from the UI server's network, the configured token/scopes, and Garage's TLS certificate. Use `GARAGE_TLS_CA_FILE` for a private CA. The UI clearly warns when `GARAGE_TLS_INSECURE=1`; this setting disables certificate verification.
+Check the admin URL from the UI server's network, the configured token/scopes, and Garage's TLS certificate. UI and Garage containers must share a Docker network when the URL uses a service name such as `http://garage:3903`. If the UI inherits proxy variables, include `garage` in `NO_PROXY` so internal Admin and S3 requests connect directly. A transport timeout (`504`) does not establish whether the token is valid; confirm reachability first. Use `GARAGE_TLS_CA_FILE` for a private CA. The UI clearly warns when `GARAGE_TLS_INSECURE=1`; this setting disables certificate verification.
 
 Garage older than v2.3.0 is blocked from writes. A scoped Garage admin token may permit overview reads but deny layout, key, or token operations. A UI administrator still needs the server's Garage token to permit the requested endpoint.
 

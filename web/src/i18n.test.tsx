@@ -23,7 +23,21 @@ test("english and chinese catalogs have the same keys", () => {
     expect(english.length).toBeGreaterThan(0);
     expect(chinese.length).toBeGreaterThan(0);
     expect(chinese).not.toBe(key);
-    expect(chinese).not.toBe(english);
+  }
+});
+
+test("Chinese keeps standard units, product names, and technical field names", () => {
+  const terms = {
+    "unit.B": "B", "unit.KB": "KB", "unit.MB": "MB", "unit.GB": "GB",
+    "unit.TB": "TB", "unit.PB": "PB", "unit.perSecond": "B/s",
+    "ui.garage.ui": "Garage UI", "ui.id": "ID",
+    "ui.access.key": "Access Key ID", "ui.secret.access.key": "Secret Access Key",
+    "ui.allowedorigin": "AllowedOrigin", "ui.allowedmethod": "AllowedMethod",
+    "ui.allowedheader": "AllowedHeader", "ui.exposeheader": "ExposeHeader",
+    "ui.maxageseconds": "MaxAgeSeconds",
+  } as const;
+  for (const [key, value] of Object.entries(terms)) {
+    expect(zh[key as keyof typeof terms], key).toBe(value);
   }
 });
 
@@ -126,7 +140,7 @@ test("a timestamp follows the language and english keeps the source text", () =>
   expect(screen.getByText("2026-10-11T00:00:00Z").textContent).toBe("2026-10-11T00:00:00Z");
 });
 
-test("capacity units follow the language", () => {
+test("capacity display and selectors keep standard units in Chinese", () => {
   const english = render(
     <LanguageProvider>
       <CapacityText digits="1000" />
@@ -141,8 +155,7 @@ test("capacity units follow the language", () => {
       <CapacityText digits="1000" />
     </LanguageProvider>,
   );
-  expect(screen.getByText("1.00 千字节").textContent).toBe("1.00 千字节");
-  expect(screen.queryByText("1.00 KB")).toBeNull();
+  expect(screen.getByText("1.00 KB").textContent).toBe("1.00 KB");
   chinese.unmount();
 
   render(
@@ -151,9 +164,9 @@ test("capacity units follow the language", () => {
     </LanguageProvider></GarageTheme>,
   );
   const unit = screen.getByRole("combobox", { name: "单位" });
-  expect(unit.textContent).toBe("太字节");
+  expect(unit.textContent).toBe("TB");
   fireEvent.keyDown(unit, { key: "ArrowDown" });
-  expect(screen.getByRole("option", { name: "太字节" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("option", { name: "TB" }).getAttribute("aria-selected")).toBe("true");
 });
 
 test("the confirm dialog follows the language", () => {
@@ -196,7 +209,7 @@ test.each([
 test("compact capacity follows the selected locale and preserves unknown text", () => {
   localStorage.setItem("garage-ui-language", "zh-CN");
   const { container } = render(<LanguageProvider><CompactCapacityText digits="1234" /></LanguageProvider>);
-  expect(screen.getByText((_, element) => element?.textContent === "≈ 1.23 千字节", { selector: ".ui-value-text > span" })).toBeTruthy();
+  expect(screen.getByText((_, element) => element?.textContent === "≈ 1.23 KB", { selector: ".ui-value-text > span" })).toBeTruthy();
   expect(container.querySelector("summary")?.textContent).toBe("精确字节数");
   cleanup();
   render(<CompactCapacityText digits="unknown" />);

@@ -1,6 +1,6 @@
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render as renderBase, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 
@@ -191,7 +191,8 @@ test("shows an up node with a hostname and a down draining node", async () => {
   expect(up?.textContent).toContain("10.0.0.1:3901");
   expect(up?.textContent).toContain("v2.4.1");
   expect(up?.textContent).toContain("Up");
-  expect(up?.querySelector("form")?.getAttribute("aria-label")).toBe("Node capacity");
+  expect(within(up as HTMLTableRowElement).getByRole("link", { name: "Open maintenance for alpha" })).toBeTruthy();
+  expect(up?.querySelector("form")).toBeNull();
   expect(down?.textContent).toContain("node-down");
   expect(down?.textContent).toContain("DownDraining");
   const page = document.body.textContent ?? "";
@@ -401,7 +402,7 @@ test("shows the connect API message in a paragraph and keeps the nodes", async (
   );
   expect(message.getAttribute("role")).toBeNull();
   expect(message.textContent).toBe("Connect: Garage admin API is not reachable");
-  expect(message.closest("details")).toBeTruthy();
+  expect(message.closest(".ui-cluster-maintenance")).toBeTruthy();
   expect(screen.queryByText("garage_unavailable")).toBeNull();
   expect(screen.queryByRole("button", { name: "Retry nodes" })).toBeNull();
   expect(screen.queryByText("Connected")).toBeNull();
@@ -835,6 +836,15 @@ test("purge asks for the block hash before it sends", async () => {
   );
   renderApp();
   expect(await screen.findByText("n1")).toBeTruthy();
+  const maintenance = screen.getByRole("link", { name: "Open maintenance for alpha" });
+  expect(maintenance.getAttribute("href")).toBe("#node/n1/maintenance");
+  act(() => {
+    window.history.replaceState(null, "", "#node/n1/maintenance");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  expect(window.location.hash).toBe("#node/n1/maintenance");
+  expect(screen.getByRole("heading", { name: "Maintenance for alpha" })).toBeTruthy();
+  expect(screen.getByText("Block removal permanently loses object data on alpha.")).toBeTruthy();
   const field = screen.getByLabelText("Block hash for n1") as HTMLInputElement;
   const purge = screen.getByRole("button", { name: "Purge blocks on n1" });
   const purgePosts = () =>
@@ -849,7 +859,7 @@ test("purge asks for the block hash before it sends", async () => {
   fireEvent.click(purge);
   expect(screen.getByRole("heading", { name: "Confirm abc" })).toBeTruthy();
   expect(screen.getByText("Object data will be lost.").tagName).toBe("P");
-  expect(screen.getAllByText("n1")).toHaveLength(2);
+  expect(within(screen.getByRole("dialog")).getByText("n1")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
@@ -1161,7 +1171,7 @@ test("failed apply keeps confirmation and successful retry refreshes version for
     return json({status:"ok",version:"test"});
   }));
   renderApp();
-  await screen.findByText("n1");
+  await screen.findByText("n1", { selector: "code, p.ui-identifier" });
   fireEvent.click(screen.getByRole("button", {name:"Preview layout"}));
   await act(async () => {});
   fireEvent.click(screen.getByRole("button", {name:"Apply layout"}));
@@ -1192,12 +1202,14 @@ test.each(["stage", "revert", "skip", "snapshot", "purge"] as const)("%s reports
     if (url === path) { attempts += 1; if (attempts === 1) return json({message:`${operation} rejected`},409); version = 2; return json({}); }
     return json({status:"ok",version:"test"});
   }));
+  if (operation === "stage" || operation === "purge") {
+    window.location.hash = "#node/n1/maintenance";
+  }
   renderApp();
-  await screen.findByText("n1");
-  document.querySelectorAll("details").forEach(item => { item.open = true; });
+  await screen.findByText("n1", { selector: "code, p.ui-identifier" });
   const button = () => screen.getByRole("button", {name:{stage:"Save",revert:"Revert staged changes",skip:"Skip dead nodes",snapshot:"Snapshot every node",purge:"Purge blocks on n1"}[operation]});
-  if (operation === "stage") fireEvent.change(screen.getByLabelText("Capacity"), {target:{value:"3"}});
-  if (operation === "purge") fireEvent.change(screen.getByLabelText("Block hash for n1"), {target:{value:"aa11"}});
+  if (operation === "stage") fireEvent.change(await screen.findByLabelText("Capacity"), {target:{value:"3"}});
+  if (operation === "purge") fireEvent.change(await screen.findByLabelText("Block hash for n1"), {target:{value:"aa11"}});
   fireEvent.click(button());
   if (operation === "skip" || operation === "purge") {
     fireEvent.change(screen.getByLabelText(`Type ${operation === "skip" ? "1" : "aa11"} to confirm`), {target:{value:operation === "skip" ? "1" : "aa11"}});
@@ -1210,6 +1222,12 @@ test.each(["stage", "revert", "skip", "snapshot", "purge"] as const)("%s reports
   else fireEvent.click(button());
   await screen.findByText(operation === "snapshot" ? "Metadata snapshot started" : "Saved");
   expect(attempts).toBe(2);
+  if (operation === "stage" || operation === "purge") {
+    act(() => {
+      window.history.replaceState(null, "", "/#nodes");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+  }
   expect(await screen.findByText("2000000000000 B", {selector:"code"})).toBeTruthy();
   if (operation === "stage" || operation === "skip" || operation === "revert") {
     expect(screen.getByText("Current 2")).toBeTruthy();
@@ -1232,16 +1250,90 @@ test("node detail has one hostname heading and exposes exact capacity and full i
   expect(screen.getByText("10.0.0.1:3901").closest("dd")).toBeTruthy();
 });
 
-test("node records retain capacity editing and maintenance in the same semantic row", async () => {
+test("node records link to their dedicated maintenance tab without embedded forms", async () => {
   installFetch("admin", () => textResponse(listed));
   renderApp();
   const identity = await screen.findByText("node-up");
   const row = identity.closest("tr");
   expect(row?.closest(".ui-table-records") !== null).toBe(true);
-  const disclosure = row?.querySelector('[data-kind="actions"] details') as HTMLDetailsElement;
-  expect(disclosure.querySelector("summary")?.textContent).toBe("Maintenance");
-  disclosure.open = true;
-  expect(row?.querySelector('form[aria-label="Node capacity"]')).toBeTruthy();
-  expect(row?.querySelector('[aria-label="Purge blocks on node-up"]')).toBeTruthy();
+  const maintenance = within(row as HTMLTableRowElement).getByRole("link", {
+    name: "Open maintenance for alpha",
+  });
+  expect(maintenance.getAttribute("href")).toBe("#node/node-up/maintenance");
+  expect(row?.querySelector('form[aria-label="Node capacity"]')).toBeNull();
+  expect(row?.querySelector('[aria-label="Purge blocks on node-up"]')).toBeNull();
   expect(row?.querySelector('code')?.textContent).toBe("9007199254740993 B");
+});
+
+test.each(["stage", "purge", "snapshot"] as const)("%s feedback stays with its actual node", async (operation) => {
+  const tab = operation === "snapshot" ? "information" : "maintenance";
+  window.history.replaceState(null, "", `/#node/n1/${tab}`);
+  const failure = `${operation} failed on alpha`;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/auth/status") return json(session("admin"));
+    if (url === "/api/cluster/status") return json({ layoutVersion: 1, nodes: [
+      { id: "n1", hostname: "alpha", isUp: true, draining: false, role: { capacity: 1000000000000 } },
+      { id: "n2", hostname: "beta", isUp: true, draining: false, role: { capacity: 2000000000000 } },
+    ] });
+    if (init?.method === "POST") return json({ message: failure }, 409);
+    return json({ status: "ok", version: "test" });
+  }));
+  renderApp();
+  if (operation === "stage") fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+  if (operation === "purge") {
+    fireEvent.change(await screen.findByLabelText("Block hash for n1"), { target: { value: "aa11" } });
+    fireEvent.click(screen.getByRole("button", { name: "Purge blocks on n1" }));
+    fireEvent.change(screen.getByLabelText("Type aa11 to confirm"), { target: { value: "aa11" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  }
+  if (operation === "snapshot") fireEvent.click(await screen.findByRole("button", { name: "Snapshot metadata" }));
+  if (operation === "purge") {
+    await within(screen.getByRole("dialog")).findByText(new RegExp(failure));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  }
+  expect((await screen.findAllByRole("alert")).some(item => item.textContent === failure)).toBe(true);
+  act(() => {
+    window.history.replaceState(null, "", `/#node/n2/${tab}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  });
+  await screen.findByRole("heading", { name: "beta" });
+  expect(screen.queryByText(failure)).toBeNull();
+  if (operation === "purge") {
+    fireEvent.change(await screen.findByLabelText("Block hash for n2"), { target: { value: "aa11" } });
+    fireEvent.click(screen.getByRole("button", { name: "Purge blocks on n2" }));
+    expect(within(screen.getByRole("dialog")).queryByText(new RegExp(failure))).toBeNull();
+  }
+  if (operation === "snapshot") {
+    act(() => {
+      window.history.replaceState(null, "", "/#nodes");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await screen.findByRole("button", { name: "Snapshot every node" });
+    expect(screen.queryByText(failure)).toBeNull();
+  }
+});
+
+test("a failed revert does not keep the success of an earlier layout apply", async () => {
+  let version = 1;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/auth/status") return json(session("admin"));
+    if (url === "/api/cluster/status") return json({ layoutVersion: version, nodes: [{ id: "n1", isUp: true, draining: false }] });
+    if (url === "/api/layout/preview") return json({});
+    if (url === "/api/layout/history") return json({ versions: [], updateTrackers: {} });
+    if (url === "/api/layout/apply") { version = 2; return json({}); }
+    if (url === "/api/layout/revert") return json({ message: "Revert rejected" }, 409);
+    return json({ status: "ok", version: "test" });
+  }));
+  renderApp();
+  fireEvent.click(await screen.findByRole("button", { name: "Preview layout" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Apply layout" })).toHaveProperty("disabled", false));
+  fireEvent.click(screen.getByRole("button", { name: "Apply layout" }));
+  fireEvent.change(screen.getByLabelText("Type 2 to confirm"), { target: { value: "2" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  await screen.findByText("Saved");
+  fireEvent.click(screen.getByRole("button", { name: "Revert staged changes" }));
+  await screen.findByText("Revert rejected", { selector: "[role=alert]" });
+  expect(screen.queryByText("Saved")).toBeNull();
 });

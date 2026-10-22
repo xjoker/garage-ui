@@ -1,12 +1,10 @@
 # Getting started
 
-The recommended installation is **Docker Compose**. Follow the [three-step quick start](https://github.com/xjoker/garage-ui/blob/dev/README.md#quick-start-docker-compose): download two small deployment files, enter your existing Garage connection, and start the container. Docker chooses the correct Linux architecture; no source checkout, compiler, or frontend build is required.
+Choose either [connect to an existing Garage](Deployment.md#connect-to-an-existing-garage) or [run Garage and the UI together](Deployment.md#run-garage-and-the-ui-together). Both use ready-made containers and work without cloning the repository. The [README quick start](https://github.com/xjoker/garage-ui/blob/dev/README.md#quick-start-docker-compose) has the shortest instructions.
 
-You need a running Garage v2.3.0 or later cluster, its Admin API URL and token, and its S3 API URL and region. The Admin and S3 APIs are separate services, usually on ports **3903** and **3900**. Use addresses reachable from the UI container; its `localhost` is not your host or another container.
+For an existing cluster, you need its Admin API URL and token, S3 API URL, and region. Garage v2.3.0 or newer is required for writes; compatibility has been tested with v2.3.0 and v2.4.1. The combined stack supplies these settings automatically.
 
-If you do not have Garage yet, use the [bundled local demo](Deployment.md#try-the-bundled-local-garage-demo). For HTTPS, standalone binaries, Kubernetes, or backups, see [Deployment](Deployment.md).
-
-Once the container starts, open **[http://localhost:3909](http://localhost:3909)** on the Docker host. The UI has its own accounts; a Garage token or S3 key is not a UI login.
+Open **[http://localhost:3909](http://localhost:3909)** on the Docker host, or use the [SSH tunnel](Deployment.md#serve-the-ui-over-https) for a remote host. The UI has its own accounts; a Garage token or S3 key is not a UI login.
 
 ## Create the first administrator
 

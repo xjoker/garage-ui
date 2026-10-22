@@ -1,5 +1,6 @@
 import { Button, Table } from "@radix-ui/themes";
-import { useId, useState, type ReactNode, type TdHTMLAttributes } from "react";
+import { useId, useRef, useState, type ReactNode, type TdHTMLAttributes } from "react";
+import { copyText } from "./clipboard";
 import { fill, useI18n } from "./i18n";
 
 export function Pagination({ page, hasPrevious, hasNext, pending = false, onPrevious, onNext }: {
@@ -21,18 +22,39 @@ export function Pagination({ page, hasPrevious, hasNext, pending = false, onPrev
 export function ResourceIdentity({ id, name, compact = false }: { id: string; name?: string; compact?: boolean }) {
   const { t } = useI18n();
   const [result, setResult] = useState<"copied" | "failed" | null>(null);
+  const identityRef = useRef<HTMLElement>(null);
   const abbreviated = id.length > 15 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
-  const copyButton = <Button size="2" variant="ghost" type="button" onClick={async () => {
+  const copyButton = <Button size="2" variant="ghost" type="button" onClick={() => {
     setResult(null);
-    try { await navigator.clipboard.writeText(id); setResult("copied"); }
-    catch { setResult("failed"); }
+    void copyText(id, () => {
+      const identifier = identityRef.current;
+      const selection = window.getSelection();
+      if (!identifier || !selection) return false;
+      const details = identifier.closest("details");
+      const wasOpen = details?.open ?? false;
+      const previous = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange());
+      if (details) details.open = true;
+      const range = document.createRange();
+      range.selectNodeContents(identifier);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      } finally {
+        selection.removeAllRanges();
+        previous.forEach((item) => selection.addRange(item));
+        if (details) details.open = wasOpen;
+      }
+    }).then((copyResult) => setResult(copyResult === "copied" ? "copied" : "failed"));
   }}>{t("common.copyId")}</Button>;
   return <div className={`ui-resource-identity${compact ? " ui-resource-identity-compact" : ""}`}>
     {name ? <span className="ui-resource-name">{name}</span> : null}
     <div className="ui-actions">
       <details className="ui-identity-details">
         <summary><span className="ui-identifier">{abbreviated}</span><span className="ui-muted">{t("common.fullId")}</span></summary>
-        <code className="ui-identifier">{id}</code>
+        <code className="ui-identifier" ref={identityRef}>{id}</code>
         {compact ? copyButton : null}
       </details>
       {compact ? null : copyButton}

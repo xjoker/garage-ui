@@ -2,4 +2,6 @@ target
 web/node_modules
 web/dist
 .git
+.claude
+evidence-local
 .DS_Store

@@ -6,6 +6,8 @@ use rust_embed::Embed;
 
 use crate::state::App;
 
+pub(crate) const SECURITY_POLICY: &str = "default-src 'self'; style-src-attr 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
+
 #[derive(Embed)]
 #[folder = "$CARGO_MANIFEST_DIR/../../web/dist"]
 struct Assets;
@@ -33,26 +35,46 @@ pub async fn asset(State(app): State<App>, uri: Uri) -> Response {
 
 fn file_response(path: &str, base_tag: &str) -> Option<Response> {
     let file = Assets::get(path)?;
-    let body = if path == "index.html" {
-        Body::from(inject_base(&file.data, base_tag))
+    let (body, policy) = if path == "index.html" {
+        let nonce = match crate::util::random_bytes(16) {
+            Ok(bytes) => crate::util::hex_encode(&bytes),
+            Err(_) => {
+                tracing::error!("Failed to generate page CSP nonce");
+                return Some(
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::from("Failed to initialize page security"))
+                        .unwrap(),
+                );
+            }
+        };
+        let page_head = format!("{base_tag}<meta name=\"csp-nonce\" content=\"{nonce}\">");
+        // Radix Themes does not forward nonces to its two fixed viewport styles.
+        let policy = format!(
+            "{SECURITY_POLICY}; style-src-elem 'self' 'nonce-{nonce}' 'sha256-441zG27rExd4/il+NvIqyL8zFx5XmyNQtE381kSkUJk=' 'sha256-vGQdhYJbTuF+M8iCn1IZCHpdkiICocWHDq4qnQF4Rjw='"
+        );
+        (
+            Body::from(inject_base(&file.data, &page_head)),
+            Some(policy),
+        )
     } else {
-        Body::from(file.data.into_owned())
+        (Body::from(file.data.into_owned()), None)
     };
     let cache = if path.ends_with(".html") {
         "no-cache"
     } else {
         "public, max-age=31536000, immutable"
     };
-    Some(
-        Response::builder()
-            .header(
-                header::CONTENT_TYPE,
-                HeaderValue::from_static(content_type(path)),
-            )
-            .header(header::CACHE_CONTROL, HeaderValue::from_static(cache))
-            .body(body)
-            .unwrap(),
-    )
+    let mut response = Response::builder()
+        .header(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static(content_type(path)),
+        )
+        .header(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    if let Some(policy) = policy {
+        response = response.header("content-security-policy", policy);
+    }
+    Some(response.body(body).unwrap())
 }
 
 fn inject_base(bytes: &[u8], base_tag: &str) -> Vec<u8> {
@@ -120,6 +142,36 @@ mod tests {
             Some("public, max-age=31536000, immutable"),
             "{hashed}"
         );
+    }
+
+    #[tokio::test]
+    async fn each_html_response_nonces_only_its_component_styles() {
+        let first = file_response("index.html", "<base href=\"/\">").unwrap();
+        let first_policy = first.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        let first_body = axum::body::to_bytes(first.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let html = String::from_utf8(first_body.to_vec()).unwrap();
+        let nonce = html
+            .split("<meta name=\"csp-nonce\" content=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        assert_eq!(nonce.len(), 32);
+        assert!(nonce.bytes().all(|value| value.is_ascii_hexdigit()));
+        assert!(first_policy.contains(&format!("style-src-elem 'self' 'nonce-{nonce}'")));
+        assert!(first_policy.contains("'sha256-441zG27rExd4/il+NvIqyL8zFx5XmyNQtE381kSkUJk='"));
+        assert!(first_policy.contains("'sha256-vGQdhYJbTuF+M8iCn1IZCHpdkiICocWHDq4qnQF4Rjw='"));
+        assert!(first_policy.contains("style-src-attr 'unsafe-inline'"));
+        assert!(first_policy.contains("default-src 'self'"));
+        assert!(!first_policy.contains("script-src 'unsafe-inline'"));
+        let second = file_response("index.html", "<base href=\"/\">").unwrap();
+        assert_ne!(first_policy, second.headers()["content-security-policy"]);
     }
 
     fn cache_control(response: &Response) -> Option<&str> {

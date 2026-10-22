@@ -8,6 +8,12 @@ import "@radix-ui/themes/styles.css";
 import "./index.css";
 import "./mobile.css";
 
+const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content;
+if (styleNonce) {
+  // Radix's style singleton reads this global when creating scroll-lock styles.
+  Object.assign(window, { __webpack_nonce__: styleNonce });
+}
+
 bootTheme(document.documentElement, localStorage);
 
 const queryClient = new QueryClient();

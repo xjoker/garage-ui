@@ -6,7 +6,7 @@ import { ApiError, api, captureAuthGeneration, noteUnauthenticated, objectPath }
 import { isGarageDown } from "./garageDown";
 import { bucketUrl } from "./BucketPermissions";
 import { ConfirmDialog } from "./confirm";
-import { bucketLocationFromHash, hashForObjects, useLocationHash } from "./Nav";
+import { bucketLocationFromHash, hashForDetail, hashForObjects, useLocationHash } from "./Nav";
 import { releaseHash } from "./unsaved";
 import { DataCell, Pagination, ResourceIdentity } from "./ui";
 import { UploadPanel } from "./UploadPanel";
@@ -973,7 +973,7 @@ export function Objects({
   const previewFailure = previewKey !== null && previewMeta.isError ? failureOf(previewMeta.error) : null;
   const inspectFailure = inspected !== null && inspect.isError ? failureOf(inspect.error) : null;
   const failure = listFailure ?? searchFailure;
-  const needsKey = canWrite && listFailure?.code === "no_usable_key";
+  const needsKey = canWrite && failure?.code === "no_usable_key";
   const keyChoices = useQuery({
     queryKey: ["access-keys", bucketId],
     queryFn: () => readJson("/api/keys?limit=100").then(parseKeyIds),
@@ -1206,11 +1206,20 @@ export function Objects({
       {loading && !showRows ? (
         <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.objects")}>{copy("ui.loading.objects")}</div>
       ) : null}
-      {showFailure && failure ? <p className="ui-alert">{failure.message}</p> : null}
-      {showFailure && failure?.code ? <p>{failure.code}</p> : null}
+      {showFailure && failure ? <p className="ui-alert">{translate(failure.message)}</p> : null}
+      {showFailure && failure?.code && !needsKey ? <p>{failure.code}</p> : null}
       {needsKey ? (
+        <section className="ui-panel ui-page" aria-label={copy("ui.bucket.key")}>
+          <p>{copy("objects.key.help")}</p>
+          {canManage ? <div className="ui-actions">
+            <Button asChild size="2" variant="soft" color="gray"><a href={hashForDetail({ resource: "bucket", id: bucketId, tab: "permissions" })}>{copy("objects.bucket.permissions")}</a></Button>
+            <Button asChild size="2" variant="soft" color="gray"><a href="#keys">{copy("ui.create.key")}</a></Button>
+          </div> : null}
+          {keyChoices.isPending ? <p role="status">{copy("ui.loading.keys")}</p> : null}
+          {keyChoices.isSuccess && keyChoices.data.length === 0 ? <p>{copy("objects.no.keys.help")}</p> : null}
+          {keyChoices.data && keyChoices.data.length > 0 ? (
         <form
-          className="ui-panel ui-actions items-end"
+          className="ui-actions items-end"
           onSubmit={(event) => {
             event.preventDefault();
             if (keyChoice.length === 0 || chooseKey.isPending) {
@@ -1238,9 +1247,11 @@ export function Objects({
             disabled={keyChoice.length === 0 || chooseKey.isPending}
           >
             {copy("ui.use.this.key")}</Button>
-          {keyChoices.isError ? <p>{failureOf(keyChoices.error).message}</p> : null}
           {chooseKey.error instanceof Error ? <p>{chooseKey.error.message}</p> : null}
         </form>
+          ) : null}
+          {keyChoices.isError ? <div className="ui-alert"><p role="alert">{failureOf(keyChoices.error).message}</p><Button size="2" variant="soft" color="gray" onClick={() => { void keyChoices.refetch(); }}>{copy("ui.retry")}</Button></div> : null}
+        </section>
       ) : null}
       {showFailure ? (
         <Button size="2" variant="soft" color="gray"

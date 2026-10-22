@@ -140,8 +140,18 @@ button:not(.rt-reset)[aria-pressed="true"] { font-weight: 600; background: var(-
 .ui-table-records :is(th, td) { min-width: 0; }
 .ui-table-records td { height: 48px; }
 .console-nav-group { display: grid; gap: 4px; }
-.console-nav-group-label { padding: 16px 12px 4px; color: var(--muted); font-size: 12px; }
+.console-nav-group + .console-nav-group { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--separator); }
+.console-nav-group-label { margin: 0; padding: 0 12px 4px; color: var(--ink); font-size: 13px; font-weight: 600; line-height: 18px; }
 .console-nav-group:last-child { margin-top: 24px; }
+.console-nav-group:last-child { padding-top: 12px; border-top: 1px solid var(--separator); }
+.console-nav-link[aria-current="page"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.ui-maintenance { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; max-width: 880px; overflow-wrap: anywhere; border: 1px solid var(--separator); border-radius: var(--control-radius); background: var(--surface); }
+.ui-maintenance-header, .ui-maintenance-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; padding: 20px 24px; }
+.ui-maintenance-header { border-bottom: 1px solid var(--separator); }
+.ui-maintenance-header h3, .ui-maintenance-section h4 { margin: 0; font-weight: 600; }
+.ui-maintenance-header p, .ui-maintenance-section > p { margin: 0; color: var(--muted); }
+.ui-maintenance-section + .ui-maintenance-section { border-top: 1px solid var(--separator); }
+.ui-maintenance-danger h4 { color: var(--danger); }
 .console-breadcrumb { flex: 1 1 0; overflow-wrap: anywhere; }
 
 .console-account-panel { display: grid; gap: 12px; width: min(320px, calc(100vw - 32px)); overflow-wrap: anywhere; }
@@ -156,6 +166,7 @@ button:not(.rt-reset)[aria-pressed="true"] { font-weight: 600; background: var(-
 
   .console-content { padding: 16px 16px 32px; gap: 24px; }
   .ui-panel { padding: 16px; }
+  .ui-maintenance-header, .ui-maintenance-section { padding: 16px; }
   .ui-settings-section { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
 @media (max-width: 639px) {
@@ -165,6 +176,7 @@ button:not(.rt-reset)[aria-pressed="true"] { font-weight: 600; background: var(-
   .ui-disclosure > :not(summary) { margin: 0 12px 12px; }
   .console-content { padding: 12px 12px 24px; gap: 16px; }
   .ui-panel { padding: 12px; }
+  .ui-maintenance-header, .ui-maintenance-section { padding: 12px; }
   .ui-settings-section { padding-block: 16px; gap: 12px; }
   .auth-shell { align-items: start; padding: 88px 16px 24px; }
   .auth-card { gap: 16px; padding: 20px; }

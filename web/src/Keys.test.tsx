@@ -3,6 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { Keys } from "./Keys";
+import { SecretDialog } from "./SecretDialog";
+
+const originalExecCommand = Object.getOwnPropertyDescriptor(document, "execCommand");
 
 afterEach(() => {
   cleanup();
@@ -12,6 +15,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   document.cookie = "garage_csrf=; Max-Age=0";
   Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+  if (originalExecCommand) Object.defineProperty(document, "execCommand", originalExecCommand);
+  else Reflect.deleteProperty(document, "execCommand");
 });
 
 function renderKeys(canManage = false) {
@@ -436,10 +441,16 @@ test("shows a created secret once, copies it, and removes it when the dialog clo
   });
 });
 
-test("asks the operator to select the secret when the page is not a secure context", async () => {
+test("copies a secret through execCommand when the page is not a secure context", async () => {
   const writeText = vi.fn(async () => undefined);
   Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const execCommand = vi.fn(() => {
+    const selected = document.activeElement as HTMLInputElement;
+    return selected.type === "text" && selected.value === "ONCESECRET"
+      && selected.selectionStart === 0 && selected.selectionEnd === selected.value.length;
+  });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -456,10 +467,29 @@ test("asks the operator to select the secret when the page is not a secure conte
   fireEvent.click(screen.getByRole("button", { name: "Create key" }));
   const field = (await screen.findByLabelText("Secret access key")) as HTMLInputElement;
   fireEvent.click(screen.getByRole("button", { name: "Copy secret" }));
-  expect(await screen.findByText("Select the secret and copy it")).toBeTruthy();
-  expect(field.type).toBe("text");
+  expect(await screen.findByText("Copied")).toBeTruthy();
+  expect(execCommand).toHaveBeenCalledWith("copy");
+  expect(field.type).toBe("password");
   expect(field.value).toBe("ONCESECRET");
   expect(writeText).not.toHaveBeenCalled();
+});
+
+test("reveals and selects a secret without claiming success when the HTTP copy fallback fails", async () => {
+  Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+  const execCommand = vi.fn(() => false);
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+  render(<Theme><SecretDialog secret="ONCESECRET" title="Secret" label="Secret access key" description="Save this secret" onClose={() => {}} returnFocus={null} /></Theme>);
+
+  const field = screen.getByLabelText("Secret access key") as HTMLInputElement;
+  fireEvent.click(screen.getByRole("button", { name: "Copy secret" }));
+
+  expect(await screen.findByText("Select the secret and copy it")).toBeTruthy();
+  expect(execCommand).toHaveBeenCalledWith("copy");
+  expect(field.type).toBe("text");
+  expect(field.selectionStart).toBe(0);
+  expect(field.selectionEnd).toBe("ONCESECRET".length);
+  expect(screen.queryByText("Copied")).toBeNull();
 });
 
 test("renames a key with only the name and does not ask for confirmation", async () => {

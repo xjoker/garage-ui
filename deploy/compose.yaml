@@ -8,12 +8,8 @@ services:
     command: ["chown", "65532:65532", "/data"]
 
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:${GARAGE_UI_VERSION:-20261020.2}
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-      args:
-        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    image: ghcr.io/xjoker/garage-ui:${GARAGE_UI_VERSION:-20261022.1}
+    restart: unless-stopped
     depends_on:
       garage-ui-init:
         condition: service_completed_successfully
@@ -27,8 +23,9 @@ services:
       METRICS_TOKEN_FILE: /secrets/metrics_token
       S3_ENDPOINT_URL: http://garage:3900
       S3_REGION: garage
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
       # This demo is published only on loopback over HTTP. Use secure cookies with HTTPS.
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # Listening port inside the container, published on the same loopback port. Default 3909.
       PORT: ${PORT:-3909}
     ports:
@@ -45,11 +42,71 @@ services:
     volumes:
       - garage-config:/config
       - garage-ui-secrets:/ui-secrets
-      - ./garage-entrypoint.sh:/garage-entrypoint.sh:ro
-    entrypoint: ["/bin/sh", "/garage-entrypoint.sh"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # Generate configuration in a shell-equipped init container; the Garage image has no shell.
+        # Keep secrets in volumes and reuse existing tokens across restarts.
+        set -eu
+        umask 077
+        mkdir -p /config
+
+        gen() {
+          od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+        }
+
+        write_if_missing() {
+          if [ ! -s "$$1" ]; then
+            gen > "$$1"
+          fi
+          chmod 600 "$$1"
+        }
+
+        write_if_missing /config/rpc_secret
+        write_if_missing /config/admin_token
+        write_if_missing /config/metrics_token
+
+        # Share only API tokens with the non-root UI; keep the RPC secret and config private.
+        mkdir -p /ui-secrets
+        cp /config/admin_token /ui-secrets/admin_token
+        cp /config/metrics_token /ui-secrets/metrics_token
+        chown -R 65532:65532 /ui-secrets
+        chmod 700 /ui-secrets
+        chmod 600 /ui-secrets/admin_token /ui-secrets/metrics_token
+
+        rpc_secret=$$(cat /config/rpc_secret)
+        admin_token=$$(cat /config/admin_token)
+        metrics_token=$$(cat /config/metrics_token)
+
+        cat > /config/garage.toml <<EOF
+        metadata_dir = "/var/lib/garage/meta"
+        data_dir = "/var/lib/garage/data"
+        db_engine = "sqlite"
+        replication_factor = 1
+        rpc_bind_addr = "[::]:3901"
+        rpc_public_addr = "127.0.0.1:3901"
+        rpc_secret = "$${rpc_secret}"
+
+        [s3_api]
+        s3_region = "garage"
+        api_bind_addr = "[::]:3900"
+        root_domain = ".s3.garage.localhost"
+
+        [s3_web]
+        bind_addr = "[::]:3902"
+        root_domain = ".web.garage.localhost"
+        index = "index.html"
+
+        [admin]
+        api_bind_addr = "[::]:3903"
+        admin_token = "$${admin_token}"
+        metrics_token = "$${metrics_token}"
+        EOF
+        chmod 600 /config/garage.toml
 
   garage:
     image: dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020
+    restart: unless-stopped
     depends_on:
       garage-init:
         condition: service_completed_successfully

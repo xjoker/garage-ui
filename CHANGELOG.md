@@ -6,6 +6,18 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261022.1
+
+Requires Garage v2.3.0 or later (unchanged).
+
+- Security: update `rustls-webpki` to 0.103.16 and `webpki-root-certs` to 1.0.10 to reject the distrusted emSign certificate paths covered by CVE-2026-111943.
+- Copy secrets and complete resource IDs over private-network HTTP, keeping secrets masked after successful copying and providing selection guidance when the browser refuses clipboard access.
+- Separate sidebar groups visually and open node maintenance directly. Group maintenance operations by purpose, show their target and consequences, and keep operation feedback attached to the correct node or cluster action.
+- Preserve standard storage units, transfer rates, product names, and technical field names in the Simplified Chinese interface.
+- Explain missing S3 credentials on object pages and provide direct links to key creation and bucket permissions, with explicit loading, empty, and retry states.
+- Permit UI component style attributes, per-page nonced component styles, and two exact Radix viewport styles through CSP while blocking arbitrary inline scripts and other stylesheet elements; preserve the separate sandbox policy on object previews.
+- Simplify image-based Docker Compose instructions in both READMEs, document automatic data-directory ownership initialization and shared Garage networking, and make the combined deployment template self-contained.
+
 ## 20261020.2
 
 Requires Garage v2.3.0 or later (unchanged).

@@ -1,4 +1,4 @@
-import { Button, Checkbox, DropdownMenu, Select, Table, TextField } from "@radix-ui/themes";
+import { Button, Checkbox, Select, Table, TextField } from "@radix-ui/themes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
@@ -763,12 +763,13 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
   });
   const apply = useMutation({
     mutationFn: applyLayout,
+    onMutate: (): void => { revert.reset(); },
     onSuccess: async () => {
       await refreshLayout();
       setApplyOpen(false);
     },
   });
-  const revert = useMutation({ mutationFn: revertLayout, onSuccess: refreshLayout });
+  const revert = useMutation({ mutationFn: revertLayout, onMutate: (): void => { apply.reset(); }, onSuccess: refreshLayout });
   const skip = useMutation({
     onSuccess: async () => { await refreshLayout(); setSkipStep(null); },
     mutationFn: ({ version, missing }: { version: string; missing: boolean }) =>
@@ -809,8 +810,6 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
   const rows = nodes.isSuccess ? nodes.data.nodes : [];
   const layoutVersion = nodes.isSuccess ? nodes.data.layoutVersion : null;
   const nextLayoutVersion = layoutVersion === null ? null : incrementDigits(layoutVersion);
-  const writes = [stage, apply, revert, skip, purge, snapshot];
-  const writing = writes.some(mutation => mutation.isPending);
   const layoutWriting = stage.isPending || apply.isPending || revert.isPending || skip.isPending;
   const shown = nodes.isSuccess
     ? orderedNodes(
@@ -871,11 +870,6 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
         <h2>{copy("ui.nodes")}</h2>
         {layoutVersion !== null ? <p className="ui-muted">{translate("Layout version")}: <span className="ui-identifier">{layoutVersion}</span></p> : null}
       </header> : null}
-      <div aria-live="polite">
-        {writing ? <p role="status">{copy("ui.working")}</p> : null}
-        {writes.map((mutation, index) => mutation.error instanceof Error && !isGarageDown(mutation.error) ? <p key={index} role="alert">{mutation.error.message}</p> : null)}
-        {!writing && writes.some(mutation => mutation !== snapshot && mutation.isSuccess) ? <p role="status">{copy("ui.saved")}</p> : null}
-      </div>
       {nodeDetail ? (
         <DetailTabs
           label={fill(copy("ui.node"), { id: nodeDetail.id })}
@@ -908,21 +902,41 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
               {canWrite && snapshot.isSuccess && snapshot.variables === openedNode.id ? (
                 <p>{copy("ui.metadata.snapshot.started")}</p>
               ) : null}
+              {canWrite && snapshot.isPending && snapshot.variables === openedNode.id ? <p role="status">{copy("ui.working")}</p> : null}
+              {canWrite && snapshot.variables === openedNode.id && snapshot.error instanceof Error && !isGarageDown(snapshot.error) ? <p role="alert">{snapshot.error.message}</p> : null}
             </>
           ) : null}
           {openedNode && nodeDetail.tab === "statistics" && openedNode.capacity !== null ? (
             <dl><dt>{copy("ui.capacity")}</dt><dd><CompactCapacityText digits={openedNode.capacity} /></dd></dl>
           ) : null}
           {canWrite && openedNode && nodeDetail.tab === "maintenance" ? (
-            <div className="ui-panel ui-page">
-            {openedNode.capacity !== null ? <CapacityField
-              pending={layoutWriting}
-              bytes={openedNode.capacity}
-              submit={(capacity) => {
-                if (!layoutWriting) stage.mutate({ id: openedNode.id, capacity });
-              }}
-            /> : null}
-            <NodeBlockPurge pending={purge.isPending} id={openedNode.id} onAsk={(hash) => setPurgeTarget({id:openedNode.id,hash})} />
+            <div className="ui-maintenance" aria-label={copy("tab.maintenance")}>
+              <header className="ui-maintenance-header">
+                <h3>{fill(copy("ui.maintenance.for"), { name: openedNode.hostname ?? openedNode.id })}</h3>
+                <p>{fill(copy("ui.maintenance.target"), { id: openedNode.id })}</p>
+              </header>
+              {openedNode.capacity !== null ? <section className="ui-maintenance-section" aria-labelledby="node-layout-maintenance">
+                <h4 id="node-layout-maintenance">{copy("ui.capacity.and.layout")}</h4>
+                <p>{copy("ui.capacity.layout.consequence")}</p>
+                <CapacityField
+                  pending={layoutWriting}
+                  bytes={openedNode.capacity}
+                  submit={(capacity) => {
+                    if (!layoutWriting) stage.mutate({ id: openedNode.id, capacity });
+                  }}
+                />
+                {stage.variables?.id === openedNode.id && stage.isPending ? <p role="status">{copy("ui.working")}</p> : null}
+                {stage.variables?.id === openedNode.id && stage.error instanceof Error && !isGarageDown(stage.error) ? <p role="alert">{stage.error.message}</p> : null}
+                {stage.variables?.id === openedNode.id && stage.isSuccess ? <p role="status">{copy("ui.saved")}</p> : null}
+              </section> : null}
+              <section className="ui-maintenance-section ui-maintenance-danger" aria-labelledby="node-block-removal">
+                <h4 id="node-block-removal">{copy("ui.block.removal")}</h4>
+                <p>{fill(copy("ui.block.removal.consequence"), { name: openedNode.hostname ?? openedNode.id })}</p>
+                <NodeBlockPurge pending={purge.isPending} id={openedNode.id} onAsk={(hash) => setPurgeTarget({id:openedNode.id,hash})} />
+                {purge.variables?.id === openedNode.id && purge.isPending ? <p role="status">{copy("ui.working")}</p> : null}
+                {purge.variables?.id === openedNode.id && purge.error instanceof Error && !isGarageDown(purge.error) ? <p role="alert">{purge.error.message}</p> : null}
+                {purge.variables?.id === openedNode.id && purge.isSuccess ? <p role="status">{copy("ui.saved")}</p> : null}
+              </section>
             </div>
           ) : null}
         </DetailTabs>
@@ -984,8 +998,10 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
       {nodeDetail === null && nodes.isSuccess && rows.length === 0 ? (
         <p>{copy("ui.there.are.no.nodes.connect.the.first.node")}</p>
       ) : null}
-      {canWrite && nodeDetail === null ? <details className="ui-disclosure"><summary>{copy("tab.maintenance")}</summary>
-      <div className="grid gap-2">
+      {canWrite && nodeDetail === null ? <section className="ui-maintenance ui-cluster-maintenance" aria-labelledby="cluster-maintenance">
+      <header className="ui-maintenance-header"><h3 id="cluster-maintenance">{copy("tab.maintenance")}</h3></header>
+      <section className="ui-maintenance-section" aria-labelledby="cluster-inspection">
+        <h4 id="cluster-inspection">{copy("ui.cluster.inspection")}</h4>
         <div className="ui-actions">
           <Button size="2" variant="soft" color="gray"
             className="max-w-full whitespace-normal"
@@ -1009,6 +1025,12 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
         {snapshot.isSuccess && snapshot.variables === "*" ? (
           <p>{copy("ui.metadata.snapshot.started")}</p>
         ) : null}
+        {snapshot.variables === "*" && snapshot.isPending ? <p role="status">{copy("ui.working")}</p> : null}
+        {snapshot.variables === "*" && snapshot.error instanceof Error && !isGarageDown(snapshot.error) ? <p role="alert">{snapshot.error.message}</p> : null}
+        {historyPanel}
+      </section>
+      <section className="ui-maintenance-section" aria-labelledby="cluster-layout-changes">
+        <h4 id="cluster-layout-changes">{copy("ui.cluster.layout.changes")}</h4>
         <div className="ui-actions">
           <Button size="2" variant="soft" color="gray"
             className="max-w-full whitespace-normal"
@@ -1041,6 +1063,14 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           >
             {copy("ui.revert.staged.changes")}</Button>
         </div>
+        {apply.isPending || revert.isPending ? <p role="status">{copy("ui.working")}</p> : null}
+        {apply.error instanceof Error && !isGarageDown(apply.error) ? <p role="alert">{apply.error.message}</p> : null}
+        {revert.error instanceof Error && !isGarageDown(revert.error) ? <p role="alert">{revert.error.message}</p> : null}
+        {apply.isSuccess || revert.isSuccess ? <p role="status">{copy("ui.saved")}</p> : null}
+      </section>
+      <section className="ui-maintenance-section ui-maintenance-danger" aria-labelledby="cluster-high-risk-controls">
+        <h4 id="cluster-high-risk-controls">{copy("ui.cluster.high.risk.controls")}</h4>
+        <p>{copy("ui.cluster.high.risk.consequence")}</p>
         <div className="ui-actions">
           <label className="ui-checkbox-field text-sm">
             <Checkbox size="2"
@@ -1062,8 +1092,10 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           >
             {copy("ui.skip.dead.nodes")}</Button>
         </div>
-        {historyPanel}
-      </div>
+        {skip.isPending ? <p role="status">{copy("ui.working")}</p> : null}
+        {skip.error instanceof Error && !isGarageDown(skip.error) ? <p role="alert">{skip.error.message}</p> : null}
+        {skip.isSuccess ? <p role="status">{copy("ui.saved")}</p> : null}
+      </section>
       <form className="ui-form" onSubmit={submit}>
         <label className="ui-field">
           <span className="text-sm">{copy("ui.node.address")}</span>
@@ -1093,7 +1125,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           ))}
         </ul>
       ) : null}
-</details> : null}
+</section> : null}
       {!canWrite && nodeDetail === null ? <div className="grid gap-2"><h3>{copy("ui.layout.history")}</h3>{historyPanel}</div> : null}
       {nodeDetail === null && nodes.isSuccess && shown.length > 0 ? (
         <div className="ui-table-container" role="region" aria-label={translate("Node list")} tabIndex={0}>
@@ -1117,32 +1149,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
                 {node.draining ? <p>{copy("ui.draining")}</p> : null}
               </DataCell>
               <DataCell label={copy("ui.capacity")}>{node.capacity !== null ? <CompactCapacityText digits={node.capacity} /> : "—"}</DataCell>
-              {canWrite ? <DataCell label={copy("tab.maintenance")} kind="actions" className="ui-record-actions-wide"><details className="ui-disclosure">
-                <summary>{copy("tab.maintenance")}</summary>
-                <DropdownMenu.Root>
-                  <DropdownMenu.Trigger><Button size="2" variant="soft" color="gray">{copy("ui.details")}<DropdownMenu.TriggerIcon /></Button></DropdownMenu.Trigger>
-                  <DropdownMenu.Content>
-                    <DropdownMenu.Item asChild><a href={`#workers/${encodeURIComponent(node.id)}`}>{copy("nav.workers")}</a></DropdownMenu.Item>
-                    <DropdownMenu.Item asChild><a href={`#block-errors/${encodeURIComponent(node.id)}`}>{copy("nav.blockErrors")}</a></DropdownMenu.Item>
-                  </DropdownMenu.Content>
-                </DropdownMenu.Root>
-              {node.capacity !== null ? (
-                <CapacityField
-                  pending={layoutWriting}
-                  bytes={node.capacity}
-                  submit={(capacity) => {
-                    if (!layoutWriting) stage.mutate({ id: node.id, capacity });
-                  }}
-                />
-              ) : null}
-              <NodeBlockPurge
-                pending={purge.isPending}
-                id={node.id}
-                onAsk={(hash) => {
-                  setPurgeTarget({ id: node.id, hash });
-                }}
-              />
-              </details></DataCell> : null}
+              {canWrite ? <DataCell label={copy("tab.maintenance")} kind="actions" className="ui-record-actions-wide"><Button asChild size="2" variant="soft" color="gray"><a aria-label={fill(copy("ui.open.maintenance.for"), { name: node.hostname ?? node.id })} href={hashForDetail({resource:"node",id:node.id,tab:"maintenance"})}>{copy("tab.maintenance")}</a></Button></DataCell> : null}
             </Table.Row>
           ))}
             </Table.Body>
@@ -1155,7 +1162,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           action="clear-block"
           name={purgeTarget.hash}
           scope={purgeTarget.id}
-          consequence={purge.error instanceof Error ? `${copy("ui.object.data.will.be.lost")} ${purge.error.message}` : copy("ui.object.data.will.be.lost")}
+          consequence={purge.variables?.id === purgeTarget.id && purge.variables.hash === purgeTarget.hash && purge.error instanceof Error ? `${copy("ui.object.data.will.be.lost")} ${purge.error.message}` : copy("ui.object.data.will.be.lost")}
           onCancel={() => {
             setPurgeTarget(null);
           }}

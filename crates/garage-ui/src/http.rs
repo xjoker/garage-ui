@@ -189,9 +189,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     if !headers.contains_key("content-security-policy") {
         headers.insert(
             "content-security-policy",
-            HeaderValue::from_static(
-                "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'",
-            ),
+            HeaderValue::from_static(assets::SECURITY_POLICY),
         );
     }
     if !headers.contains_key("x-frame-options") {
@@ -477,6 +475,9 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(csp.contains("default-src 'self'"));
+        assert!(csp.contains("style-src-attr 'unsafe-inline'"));
+        assert!(!csp.contains("style-src 'unsafe-inline'"));
+        assert!(!csp.contains("script-src 'unsafe-inline'"));
         assert!(csp.contains("object-src 'none'"));
         assert!(csp.contains("frame-ancestors 'none'"));
         assert_eq!(

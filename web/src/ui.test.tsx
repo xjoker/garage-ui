@@ -1,8 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ResourceIdentity } from "./ui";
 
-afterEach(cleanup);
+beforeEach(() => {
+  Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+});
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const id = "GK0123456789abcdefghijklmnop";
 
 test("resource identity copies the complete ID and confirms only after success", async () => {
@@ -36,4 +39,18 @@ test("compact resource identity keeps copying inside the full ID disclosure", as
   fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
   await waitFor(() => expect(screen.getByRole("status").textContent).toBe("ID copied"));
   expect(writeText).toHaveBeenCalledWith(id);
+});
+
+test("HTTP ID copying exposes the full selection only during the copy operation", async () => {
+  Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+  const execCommand = vi.fn(() => {
+    const code = document.querySelector(".ui-resource-identity code");
+    return code?.closest("details")?.open === true && window.getSelection()?.toString() === id;
+  });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+  const { container } = render(<ResourceIdentity id={id} />);
+  fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("ID copied"));
+  expect(container.querySelector("details")?.open).toBe(false);
+  expect(execCommand).toHaveBeenCalledWith("copy");
 });

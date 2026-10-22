@@ -1697,7 +1697,7 @@ test("shares one object after an admin chooses the bucket key", async () => {
     }),
   );
   renderObjects();
-  expect(await screen.findByText("no_usable_key")).toBeTruthy();
+  expect(await screen.findByText("This bucket has no usable read-write key")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Share for 1 hour" })).toBeNull();
   await screen.findByRole("combobox", { name: "Bucket key" });
   chooseOption("Bucket key", "CHOSEN");
@@ -1715,6 +1715,21 @@ test("shares one object after an admin chooses the bucket key", async () => {
   expect(calls.find((call) => call.method === "PUT")?.body).toBe(
     JSON.stringify({ access_key_id: "CHOSEN" }),
   );
+});
+
+test("a bucket without keys explains how to restore access instead of showing an empty picker", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith("/api/keys")) return json({ items: [], hasMore: false });
+    if (url.startsWith("/api/auth/status")) return json({ can_share: true, role: "admin" });
+    return json({ code: "no_usable_key", message: "This bucket has no usable read-write key" }, 412);
+  }));
+  renderObjects("bkt-1", { canWrite: true, canTransfer: true, canManage: true });
+  expect(await screen.findByText("Create an S3 key, grant it read and write access to this bucket, then return here to select it.")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Create key" }).getAttribute("href")).toBe("#keys");
+  expect(screen.getByRole("link", { name: "Bucket permissions" }).getAttribute("href")).toBe("#bucket/bkt-1/permissions");
+  expect(screen.queryByRole("combobox", { name: "Bucket key" })).toBeNull();
+  expect(screen.queryByText("no_usable_key")).toBeNull();
 });
 
 test("an admin inspecting photos/cat.jpg sees version u1", async () => {

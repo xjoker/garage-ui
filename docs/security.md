@@ -26,7 +26,7 @@ Acceptance: Assert a field allowlist on the configuration API response. A test s
 - Parsing a type ignores parameters and lowercases the type. A parse failure is treated as unsafe.
 - For a type outside the allowlist, change `Content-Type` to `application/octet-stream`, add `Content-Disposition: attachment`, and encode the filename with RFC 5987.
 - Add a sandbox CSP to object responses (`sandbox; frame-ancestors 'self'`). A PDF may allow scripts, and it must not be granted same origin.
-- Site-wide security headers: a strict CSP (its own origin only, by default; `object` is forbidden; `frame-ancestors 'none'`), `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
+- Site-wide security headers: a CSP restricted to its own origin by default, with `style-src-attr 'unsafe-inline'` for UI component positioning. Each HTML response includes a fresh nonce for component-generated style elements and exact SHA-256 allowances for Radix's two fixed viewport styles; arbitrary inline scripts and other stylesheet elements remain blocked. `object` is forbidden and `frame-ancestors 'none'` prevents embedding the UI. Responses also carry `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 - Optional (P1): serve preview from a presigned address on a separate domain, fully isolated from the admin UI.
 
 Acceptance: Upload objects whose `Content-Type` is `text/html` and `image/svg+xml`. The preview request returns an attachment download and `octet-stream`. In the E2E test, the script does not run.
