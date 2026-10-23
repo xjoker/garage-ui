@@ -138,8 +138,8 @@ export function About({ garageVersion }: { garageVersion: string | null | undefi
       {!failure && capabilities.data ? (
         <>
           <p>{fill(copy("ui.version.2"), { version: capabilities.data.version })}</p>
-          <p>{fill(copy("ui.list.buckets.info"), { listBucketsInfo: capabilities.data.listBucketsInfo })}</p>
-          <p>{fill(copy("ui.list.keys.info"), { listKeysInfo: capabilities.data.listKeysInfo })}</p>
+          {capabilities.data.listBucketsInfo === "present" ? <p>{copy("ui.bucket.details.available")}</p> : null}
+          {capabilities.data.listKeysInfo === "present" ? <p>{copy("ui.key.details.available")}</p> : null}
         </>
       ) : null}
     </div></section>

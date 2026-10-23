@@ -176,7 +176,7 @@ async function loadLayoutHistory(): Promise<LayoutHistory> {
   return layoutHistoryFrom(parsed);
 }
 
-type NodeLine = {
+export type NodeLine = {
   id: string;
   hostname: string | null;
   addr: string | null;
@@ -427,7 +427,7 @@ function parseNode(value: unknown): Omit<NodeLine, "capacity"> {
   };
 }
 
-type ClusterStatus = {
+export type ClusterStatus = {
   nodes: NodeLine[];
   layoutVersion: string | null;
 };
@@ -586,7 +586,7 @@ function failureFrom(text: string, status: number): { message: string; code: str
   return { message, code };
 }
 
-async function loadNodes(): Promise<ClusterStatus> {
+export async function loadNodes(): Promise<ClusterStatus> {
   const requestGeneration = captureAuthGeneration();
   const response = await fetch(apiPath("/api/cluster/status"), { credentials: "include" });
   const text = await response.text();
@@ -994,8 +994,40 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
       {nodeDetail === null && nodes.isSuccess && rows.length === 0 ? (
         <EmptyState title={copy("ui.there.are.no.nodes.connect.the.first.node")} />
       ) : null}
-      {canWrite && nodeDetail === null ? <section className="ui-maintenance ui-cluster-maintenance" aria-labelledby="cluster-maintenance">
-      <header className="ui-maintenance-header"><h3 id="cluster-maintenance">{copy("tab.maintenance")}</h3></header>
+      {!canWrite && nodeDetail === null ? <div className="grid gap-2"><h3>{copy("ui.layout.history")}</h3>{historyPanel}</div> : null}
+      {nodeDetail === null && nodes.isSuccess && shown.length > 0 ? (
+        <div className="ui-table-container" role="region" aria-label={translate("Node list")} tabIndex={0}>
+          <Table.Root className="ui-table ui-table-records">
+            <Table.Header><Table.Row role="row">
+              <Table.ColumnHeaderCell scope="col">{copy("ui.hostname")}</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell scope="col">{copy("ui.status")}</Table.ColumnHeaderCell>
+              <Table.ColumnHeaderCell scope="col">{copy("ui.capacity")}</Table.ColumnHeaderCell>
+              {canWrite ? <Table.ColumnHeaderCell scope="col">{copy("tab.maintenance")}</Table.ColumnHeaderCell> : null}
+            </Table.Row></Table.Header>
+            <Table.Body role="rowgroup">
+          {shown.map((node) => (
+            <Table.Row key={node.id} role="row">
+              <DataCell label={copy("ui.hostname")} kind="identity"><a aria-label={`${node.hostname ?? "—"}, ${fill(copy("ui.node"), { id: node.id })}`} href={hashForDetail({resource:"node",id:node.id,tab:"information"})}>{node.hostname ?? "—"}</a>
+                {node.id.length > 15 ? <details className="ui-identity-details"><summary className="ui-identifier">{node.id.slice(0, 8)}…{node.id.slice(-6)} <span className="ui-muted">{copy("common.fullId")}</span></summary><code className="ui-identifier">{node.id}</code></details> : <p className="ui-identifier">{node.id}</p>}
+                {node.addr !== null ? <p className="ui-muted ui-identifier">{node.addr}</p> : null}
+                {node.garageVersion !== null ? <p className="ui-muted">{node.garageVersion}</p> : null}
+              </DataCell>
+              <DataCell label={copy("ui.status")}>
+                <p className="ui-status">{node.isUp ? copy("ui.up") : copy("ui.down")}</p>
+                {node.draining ? <p>{copy("ui.draining")}</p> : null}
+              </DataCell>
+              <DataCell label={copy("ui.capacity")}>{node.capacity !== null ? <CompactCapacityText digits={node.capacity} /> : "—"}</DataCell>
+              {canWrite ? <DataCell label={copy("tab.maintenance")} kind="actions" className="ui-record-actions-wide"><Button asChild size="2" variant="soft" color="gray"><a aria-label={fill(copy("ui.open.maintenance.for"), { name: node.hostname ?? node.id })} href={hashForDetail({resource:"node",id:node.id,tab:"maintenance"})}>{copy("tab.maintenance")}</a></Button></DataCell> : null}
+            </Table.Row>
+          ))}
+            </Table.Body>
+          </Table.Root>
+        </div>
+      ) : null}
+      {canWrite && nodeDetail === null ? <details className="ui-disclosure ui-cluster-maintenance">
+      <summary>{copy("tab.maintenance")}</summary>
+      <section className="ui-maintenance" aria-label={copy("tab.maintenance")}>
+      <header className="ui-maintenance-header"><h3>{copy("tab.maintenance")}</h3></header>
       <section className="ui-maintenance-section" aria-labelledby="cluster-inspection">
         <h4 id="cluster-inspection">{copy("ui.cluster.inspection")}</h4>
         <div className="ui-actions">
@@ -1121,37 +1153,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           ))}
         </ul>
       ) : null}
-</section> : null}
-      {!canWrite && nodeDetail === null ? <div className="grid gap-2"><h3>{copy("ui.layout.history")}</h3>{historyPanel}</div> : null}
-      {nodeDetail === null && nodes.isSuccess && shown.length > 0 ? (
-        <div className="ui-table-container" role="region" aria-label={translate("Node list")} tabIndex={0}>
-          <Table.Root className="ui-table ui-table-records">
-            <Table.Header><Table.Row role="row">
-              <Table.ColumnHeaderCell scope="col">{copy("ui.hostname")}</Table.ColumnHeaderCell>
-              <Table.ColumnHeaderCell scope="col">{copy("ui.status")}</Table.ColumnHeaderCell>
-              <Table.ColumnHeaderCell scope="col">{copy("ui.capacity")}</Table.ColumnHeaderCell>
-              {canWrite ? <Table.ColumnHeaderCell scope="col">{copy("tab.maintenance")}</Table.ColumnHeaderCell> : null}
-            </Table.Row></Table.Header>
-            <Table.Body role="rowgroup">
-          {shown.map((node) => (
-            <Table.Row key={node.id} role="row">
-              <DataCell label={copy("ui.hostname")} kind="identity"><a aria-label={`${node.hostname ?? "—"}, ${fill(copy("ui.node"), { id: node.id })}`} href={hashForDetail({resource:"node",id:node.id,tab:"information"})}>{node.hostname ?? "—"}</a>
-                {node.id.length > 15 ? <details className="ui-identity-details"><summary className="ui-identifier">{node.id.slice(0, 8)}…{node.id.slice(-6)} <span className="ui-muted">{copy("common.fullId")}</span></summary><code className="ui-identifier">{node.id}</code></details> : <p className="ui-identifier">{node.id}</p>}
-                {node.addr !== null ? <p className="ui-muted ui-identifier">{node.addr}</p> : null}
-                {node.garageVersion !== null ? <p className="ui-muted">{node.garageVersion}</p> : null}
-              </DataCell>
-              <DataCell label={copy("ui.status")}>
-                <p className="ui-status">{node.isUp ? copy("ui.up") : copy("ui.down")}</p>
-                {node.draining ? <p>{copy("ui.draining")}</p> : null}
-              </DataCell>
-              <DataCell label={copy("ui.capacity")}>{node.capacity !== null ? <CompactCapacityText digits={node.capacity} /> : "—"}</DataCell>
-              {canWrite ? <DataCell label={copy("tab.maintenance")} kind="actions" className="ui-record-actions-wide"><Button asChild size="2" variant="soft" color="gray"><a aria-label={fill(copy("ui.open.maintenance.for"), { name: node.hostname ?? node.id })} href={hashForDetail({resource:"node",id:node.id,tab:"maintenance"})}>{copy("tab.maintenance")}</a></Button></DataCell> : null}
-            </Table.Row>
-          ))}
-            </Table.Body>
-          </Table.Root>
-        </div>
-      ) : null}
+</section></details> : null}
       {purgeTarget !== null ? (
         <ConfirmDialog
           pending={purge.isPending}

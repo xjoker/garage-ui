@@ -25,7 +25,7 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });
 }
 
-test("shows the version and the three probe words unchanged", async () => {
+test("shows available capability details without probe diagnostics", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -40,8 +40,7 @@ test("shows the version and the three probe words unchanged", async () => {
   expect(await screen.findByRole("heading", { name: "About" })).toBeTruthy();
   expect(screen.getByRole("region", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info unknown")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.getByText("Garage v2.3.0")).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
   cleanup();
@@ -57,8 +56,8 @@ test("shows the version and the three probe words unchanged", async () => {
     ),
   );
   renderAbout("v2.4.1");
-  expect(await screen.findByText("List buckets info present")).toBeTruthy();
-  expect(screen.getByText("List keys info absent")).toBeTruthy();
+  expect(await screen.findByText("Bucket details available")).toBeTruthy();
+  expect(screen.queryByText("Key details available")).toBeNull();
   expect(screen.getByText("Version 20261010.1")).toBeTruthy();
   expect(screen.getByText("Garage v2.4.1")).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
@@ -77,7 +76,7 @@ test("says the Garage version is not set when the session omits it", async () =>
   );
   renderAbout(null);
   expect(await screen.findByText("Garage version is not set")).toBeTruthy();
-  expect(await screen.findByText("List keys info present")).toBeTruthy();
+  expect(await screen.findByText("Key details available")).toBeTruthy();
   cleanup();
   renderAbout(undefined);
   expect(await screen.findByText("Garage version is not set")).toBeTruthy();
@@ -114,8 +113,7 @@ test("shows the API message and code, then loads capabilities again from Retry",
   expect(screen.queryByText("Version 20261010.1")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info absent")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.queryByText("Garage returned an error upstream_failed")).toBeNull();
   expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   expect(calls).toBe(2);

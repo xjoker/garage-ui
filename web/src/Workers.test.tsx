@@ -668,10 +668,14 @@ test("shows Loading workers and marks the workers section busy on the first load
   vi.stubGlobal(
     "fetch",
     vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
+      (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/cluster/status")) {
+          return Promise.resolve(json({ layoutVersion: 1, nodes: [{ id: "n1", hostname: "alpha", isUp: true, draining: false }] }));
+        }
+        return new Promise<Response>((resolve) => {
           release = resolve;
-        }),
+        });
+      },
     ),
   );
   renderWorkers();
@@ -904,7 +908,7 @@ test.each([undefined, {}, { message: 4 }])("missing or malformed worker last err
 
 
 test("canceling variable confirmation returns to the unchanged draft and closing restores its trigger", async () => {
-  const fetchMock = vi.fn(async () => json([workerRow]));
+  const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async () => json([workerRow]));
   vi.stubGlobal("fetch", fetchMock);
   renderWorkers();
   await screen.findByText("block_resync");
@@ -918,7 +922,7 @@ test("canceling variable confirmation returns to the unchanged draft and closing
   const editor = screen.getByRole("dialog", { name: "Variable" });
   expect((within(editor).getByRole("textbox", { name: "Variable" }) as HTMLInputElement).value).toBe("scrub_tranquility");
   expect((within(editor).getByRole("textbox", { name: "Value" }) as HTMLInputElement).value).toBe("3");
-  expect(fetchMock.mock.calls).toHaveLength(1);
+  expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/nodes/n1/workers"))).toHaveLength(1);
   fireEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   expect(screen.queryByRole("dialog")).toBeNull();

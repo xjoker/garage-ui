@@ -411,12 +411,9 @@ test("creates a user, deletes one, and resets a password with the csrf header", 
     expectAuthed(post as Call);
   });
   expect(await screen.findByText("Cara")).toBeTruthy();
-  const created = createForm();
-  expect(within(created).getByText("User created")).toBeTruthy();
-  expect((within(created).getByLabelText("Username") as HTMLInputElement).value).toBe("");
-  expect((within(created).getByLabelText("Password") as HTMLInputElement).value).toBe("");
-
-  fireEvent.click(within(created).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("form", { name: "Create user" })).toBeNull();
+  });
   editUser();
   fireEvent.change(screen.getByLabelText("New password for Bea"), {
     target: { value: "brand new secret" },
@@ -717,7 +714,7 @@ test("filters loaded users from the query string and keeps that choice in the ad
   expect(calls).toHaveLength(1);
 });
 
-test("shows Creating user while create is submitting, then User created", async () => {
+test("shows Creating user while create is submitting, then closes the form", async () => {
   let release: (response: Response) => void = () => {};
   document.cookie = "garage_csrf=csrf-token";
   vi.stubGlobal(
@@ -763,12 +760,7 @@ test("shows Creating user while create is submitting, then User created", async 
       201,
     ),
   );
-  expect(await within(form).findByText("User created")).toBeTruthy();
-  expect((screen.getByLabelText("Username") as HTMLInputElement).value).toBe("");
-  expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
-  const idle = within(form).getByRole("button", { name: "Create user" }) as HTMLButtonElement;
-  expect(idle.disabled).toBe(true);
-  expect(idle.textContent).toBe("Create user");
+  await waitFor(() => expect(screen.queryByRole("form", { name: "Create user" })).toBeNull());
 });
 
 test("shows Resetting password while reset is submitting, then Password reset", async () => {

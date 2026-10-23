@@ -165,8 +165,7 @@ test("settings shows About and the password form, and overview does not", async 
   expect(window.location.hash).toBe("#settings");
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info unknown")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.getByLabelText("Current password")).toBeTruthy();
   expect(screen.getByLabelText("New password")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Change password" })).toBeTruthy();

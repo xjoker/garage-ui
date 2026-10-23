@@ -6,6 +6,15 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261023.2
+
+- Redesign the console with Radix colors, clearer navigation groups, consistent typography, compact resource tables, and responsive light and dark layouts.
+- Align object search, sorting, and upload controls; keep dialog actions together; contain long errors; and simplify user and token forms.
+- Close successful creation and permission dialogs, select existing keys by name, and retain bucket context when restoring object access.
+- Put node status before maintenance, improve audit readability, and identify worker nodes by hostname.
+- Show storage units consistently, distinguish complete text previews from truncated previews, and clarify quota validation and filtered empty states.
+- Copy selected object paths over private-network HTTP, with visible selection guidance when the browser blocks clipboard access.
+
 ## 20261023.1
 
 - Update Vite from 6.4.3 to 6.4.5 to fix development-server security advisories, including the `server.fs.deny` query bypass (GHSA-8g5g-mxqh-grgj).

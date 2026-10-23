@@ -1,5 +1,5 @@
-import { Button, Checkbox, Dialog, Table, TextField } from "@radix-ui/themes";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, Checkbox, Dialog, Select, Table } from "@radix-ui/themes";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
@@ -21,6 +21,9 @@ type GrantDraft = {
   read: boolean;
   write: boolean;
 };
+
+type AvailableKey = { id: string; name: string | null };
+type AvailableKeyPage = { items: AvailableKey[]; hasMore: boolean };
 
 const blankGrant: GrantDraft = {
   accessKeyId: "",
@@ -59,6 +62,31 @@ function grantReady(draft: GrantDraft): boolean {
 
 function hasPermission(key: BucketKeyGrant): boolean {
   return key.owner || key.read || key.write;
+}
+
+function availableKeyLabel(key: AvailableKey): string {
+  return key.name === null || key.name.length === 0 ? key.id : `${key.name} (${key.id})`;
+}
+
+function parseAvailableKeys(payload: unknown): AvailableKeyPage {
+  if (typeof payload !== "object" || payload === null || !Array.isArray((payload as Record<string, unknown>).items)) {
+    throw new Error(copy("ui.keys.are.unavailable"));
+  }
+  const page = payload as Record<string, unknown>;
+  if (typeof page.hasMore !== "boolean") {
+    throw new Error(copy("ui.keys.are.unavailable"));
+  }
+  const items = (page.items as unknown[]).flatMap((entry): AvailableKey[] => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const row = entry as Record<string, unknown>;
+    if (typeof row.id !== "string" || row.id.length === 0) return [];
+    return [{ id: row.id, name: typeof row.name === "string" ? row.name : null }];
+  });
+  return { items, hasMore: page.hasMore };
+}
+
+async function loadAvailableKeys(offset: number): Promise<AvailableKeyPage> {
+  return parseAvailableKeys(await api<unknown>(`/api/keys?offset=${offset}&limit=100`));
 }
 
 function yesNo(flag: boolean): string {
@@ -172,6 +200,13 @@ function parseKeys(payload: unknown): BucketKeyGrant[] {
 function GrantForm({ bucketId, onPendingChange, onCancel }: { bucketId: string; onPendingChange: (pending: boolean) => void; onCancel: () => void }) {
   const client = useQueryClient();
   const [draft, setDraft] = useState(blankGrant);
+  const availableKeys = useInfiniteQuery({
+    queryKey: ["keys", "grant-options"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => loadAvailableKeys(pageParam),
+    getNextPageParam: (page, _pages, offset) => page.hasMore && page.items.length > 0 ? offset + page.items.length : undefined,
+  });
+  const choices = availableKeys.data?.pages.flatMap((page) => page.items) ?? [];
   const grant = useMutation({
     mutationFn: (body: GrantDraft) =>
       api(permissionsUrl(bucketId), {
@@ -181,8 +216,8 @@ function GrantForm({ bucketId, onPendingChange, onCancel }: { bucketId: string; 
     onMutate: () => onPendingChange(true),
     onSettled: () => onPendingChange(false),
     onSuccess: async () => {
-      setDraft(blankGrant);
       await client.invalidateQueries({ queryKey: permissionQueryKey(bucketId) });
+      onCancel();
     },
   });
   const error = grant.error instanceof Error ? grant.error.message : null;
@@ -200,15 +235,19 @@ function GrantForm({ bucketId, onPendingChange, onCancel }: { bucketId: string; 
       }}
     >
       <label className="ui-field">
-        {copy("ui.access.key")}<TextField.Root size="2"
-          autoComplete="off"
+        {copy("ui.access.key")}<Select.Root size="2"
           value={draft.accessKeyId}
-          onChange={(event) => {
-            const accessKeyId = event.target.value;
-            setDraft((current) => ({ ...current, accessKeyId }));
-          }}
-        />
+          disabled={availableKeys.isPending || grant.isPending}
+          onValueChange={(accessKeyId) => setDraft((current) => ({ ...current, accessKeyId }))}
+        >
+          <Select.Trigger aria-label={copy("ui.access.key")} placeholder={copy("ui.select.a.key")} />
+          <Select.Content>
+            {choices.map((key) => <Select.Item key={key.id} value={key.id}>{availableKeyLabel(key)}</Select.Item>)}
+          </Select.Content>
+        </Select.Root>
       </label>
+      {availableKeys.isError ? <p className="ui-alert">{availableKeys.error instanceof Error ? availableKeys.error.message : copy("ui.keys.are.unavailable")}</p> : null}
+      {availableKeys.hasNextPage ? <div className="ui-actions"><Button size="2" color="gray" variant="soft" type="button" disabled={availableKeys.isFetchingNextPage || grant.isPending} onClick={() => { void availableKeys.fetchNextPage(); }}>{copy("ui.load.more")}</Button></div> : null}
       <label className="ui-checkbox-field">
         <Checkbox disabled={grant.isPending} checked={draft.owner} onCheckedChange={(checked) => {
             setDraft((current) => ({ ...current, owner: checked === true }));

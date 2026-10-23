@@ -1,5 +1,5 @@
 import { Button, Checkbox, Dialog, Select, Table, TextField } from "@radix-ui/themes";
-import { OperationNodeSelection } from "./ClusterNodes";
+import { loadNodes, OperationNodeSelection } from "./ClusterNodes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { ApiError, api } from "./api/client";
@@ -375,17 +375,17 @@ function NodeRepair({ nodeId }: { nodeId: string }) {
                 </Select.Content>
               </Select.Root>
             </label>
-            <Button size="2" variant="solid" color="orange"
-              type="button"
-              disabled={repair.isPending}
-              onClick={() => {
-                setEditorOpen(false);
-                setOpen(true);
-              }}
-            >
-              {copy("ui.start.repair")}</Button>
             <div className="ui-dialog-actions">
               <Dialog.Close><Button type="button" size="2" variant="soft" color="gray" disabled={repair.isPending || open}>{copy("ui.cancel")}</Button></Dialog.Close>
+              <Button size="2" variant="solid" color="orange"
+                type="button"
+                disabled={repair.isPending}
+                onClick={() => {
+                  setEditorOpen(false);
+                  setOpen(true);
+                }}
+              >
+                {copy("ui.start.repair")}</Button>
             </div>
           </div>
         </Dialog.Content>
@@ -458,6 +458,10 @@ function WorkersList({ nodeId }: { nodeId: string }) {
     queryKey: ["nodes", nodeId, "workers", filter.busyOnly, filter.errorOnly],
     queryFn: () => loadWorkers(nodeId, filter),
   });
+  const nodes = useQuery({ queryKey: ["cluster", "status"], queryFn: loadNodes, enabled: nodeId !== "*" });
+  const node = nodeId === "*" ? null : nodes.data?.nodes.find((item) => item.id === nodeId) ?? null;
+  const shortNodeId = nodeId.length > 15 ? `${nodeId.slice(0, 8)}…${nodeId.slice(-6)}` : nodeId;
+  const nodeLabel = node?.hostname ?? (nodeId === "*" ? copy("operations.allNodes") : fill(copy("ui.node"), { id: shortNodeId }));
   const groups = workers.data ?? [];
   const rowCount = groups.reduce((count, group) => count + group.rows.length, 0);
   const view = {
@@ -470,7 +474,7 @@ function WorkersList({ nodeId }: { nodeId: string }) {
   return (
     <section className="ui-page" aria-label={copy("nav.workers")} aria-busy={view.busy}>
       <PageHeader title={copy("nav.workers")}>
-        <span className="ui-muted ui-identifier">{nodeId === "*" ? copy("operations.allNodes") : nodeId}</span>
+        <span className="ui-muted"><span>{nodeLabel}</span>{node?.hostname ? <span className="ui-identifier"> {shortNodeId}</span> : null}</span>
       </PageHeader>
       <div className="ui-toolbar text-sm">
         <label className="ui-checkbox-field">
@@ -510,7 +514,7 @@ function WorkersList({ nodeId }: { nodeId: string }) {
             {copy("ui.retry")}</Button>
         </>
       ) : null}
-      {view.empty ? <EmptyState title={copy("ui.there.are.no.workers")} /> : null}
+      {view.empty ? <EmptyState title={filter.busyOnly || filter.errorOnly ? copy("common.noPageMatches") : copy("ui.there.are.no.workers")} /> : null}
       {groups.map((group) =>
         group.rows.length === 0 ? null : (
           <div key={group.nodeId} className="grid gap-2">

@@ -97,8 +97,7 @@ test("shows health status when the session is authenticated", async () => {
   await chooseSection("Settings");
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info unknown")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.getAllByText("Garage version is not set")).toHaveLength(2);
   expect(setItem).not.toHaveBeenCalled();
 });
@@ -824,8 +823,7 @@ test("shows user management for an admin and locks that signed-in row", async ()
   await chooseSection("Settings");
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info unknown")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.getAllByText("Garage v2.4.1")).toHaveLength(2);
   await chooseSection("Users");
   fireEvent.click(await screen.findByRole("button", { name: "Actions: Ada" }));
@@ -875,8 +873,7 @@ test("hides user management from a viewer", async () => {
   await chooseSection("Settings");
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
-  expect(screen.getByText("List buckets info unknown")).toBeTruthy();
-  expect(screen.getByText("List keys info unknown")).toBeTruthy();
+  expect(screen.queryByText(/details available/)).toBeNull();
   expect(screen.getAllByText("Garage v2.4.1")).toHaveLength(2);
   expect(screen.getByRole("button", { name: "Change password" })).toBeTruthy();
   expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/users"))).toBe(false);

@@ -305,6 +305,7 @@ test("does not grant when the access key is blank or no permission is checked", 
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push(recordedCall(input, init));
+      if (String(input).startsWith("/api/keys?")) return json({ items: [], hasMore: false });
       return json({ keys: [] });
     }),
   );
@@ -321,23 +322,13 @@ test("does not grant when the access key is blank or no permission is checked", 
   fireEvent.submit(form);
   fireEvent.click(screen.getByLabelText("Owner"));
   expect(grant.disabled).toBe(true);
-  if (!screen.queryByRole("dialog")) fireEvent.click(screen.getByRole("button", { name: "Grant key" }));
-  fireEvent.change(screen.getByLabelText("Access key"), { target: { value: "  " } });
-  expect(grant.disabled).toBe(true);
-  fireEvent.submit(form);
-  if (!screen.queryByRole("dialog")) fireEvent.click(screen.getByRole("button", { name: "Grant key" }));
-  fireEvent.change(screen.getByLabelText("Access key"), { target: { value: "GK9" } });
-  expect(grant.disabled).toBe(false);
-  fireEvent.click(screen.getByLabelText("Owner"));
-  expect(grant.disabled).toBe(true);
-  fireEvent.submit(form);
   await waitFor(() => {
     expect(calls.some((call) => call.url === "/api/buckets/bkt-1")).toBe(true);
   });
   expect(calls.some((call) => call.method === "POST" || call.method === "DELETE")).toBe(false);
 });
 
-test("grants the trimmed access key and reloads that bucket", async () => {
+test("selects an existing named key, grants it, and closes the grant dialog", async () => {
   document.cookie = "garage_csrf=csrf-token";
   const calls: Call[] = [];
   let granted = false;
@@ -349,6 +340,15 @@ test("grants the trimmed access key and reloads that bucket", async () => {
       if (call.method === "POST") {
         granted = true;
         return new Response(null, { status: 204 });
+      }
+      if (call.url.startsWith("/api/keys?")) {
+        return json({
+          items: [
+            { id: "GK1", name: "photos" },
+            { id: "GK9", name: "extra" },
+          ],
+          hasMore: false,
+        });
       }
       return json({
         ...detailJunk,
@@ -380,16 +380,18 @@ test("grants the trimmed access key and reloads that bucket", async () => {
   expect(await screen.findByText("GK1", { selector: "code" })).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
   if (!screen.queryByRole("dialog")) fireEvent.click(screen.getByRole("button", { name: "Grant key" }));
-  fireEvent.change(screen.getByLabelText("Access key"), { target: { value: " GK9 " } });
+  const accessKey = screen.getByLabelText("Access key") as HTMLButtonElement;
+  await waitFor(() => expect(accessKey.disabled).toBe(false));
+  fireEvent.keyDown(accessKey, { key: " " });
+  fireEvent.click(await screen.findByRole("option", { name: "extra (GK9)" }));
   fireEvent.click(screen.getByLabelText("Owner"));
   fireEvent.click(screen.getByLabelText("Write"));
   fireEvent.click(screen.getByRole("button", { name: "Grant" }));
   expect(await screen.findByText("extra")).toBeTruthy();
   expect(screen.getByText("GK9", { selector: "code" })).toBeTruthy();
-  expect((screen.getByLabelText("Access key") as HTMLInputElement).value).toBe("");
-  expect(screen.getByRole("checkbox", { name: "Owner" }).getAttribute("aria-checked")).toBe("false");
-  expect(screen.getByRole("checkbox", { name: "Write" }).getAttribute("aria-checked")).toBe("false");
-  expect(screen.getByText("Permissions granted")).toBeTruthy();
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: "Grant key" })).toBeNull();
+  });
   expect(screen.queryByText("index-secret.html")).toBeNull();
   const post = calls.find((call) => call.method === "POST");
   expect(post).toEqual({
@@ -406,6 +408,7 @@ test("grants the trimmed access key and reloads that bucket", async () => {
   expect(calls.some((call) => call.url === "/api/buckets/a&b=c")).toBe(false);
   expect(calls.filter((call) => call.method === "GET").map((call) => call.url)).toEqual([
     "/api/buckets/a%26b%3Dc",
+    "/api/keys?offset=0&limit=100",
     "/api/buckets/a%26b%3Dc",
   ]);
 });
@@ -419,6 +422,9 @@ test("shows the API message when grant fails and keeps the entered values", asyn
       calls.push(call);
       if (call.method === "POST") {
         return json({ message: "bucket key denied" }, 409);
+      }
+      if (call.url.startsWith("/api/keys?")) {
+        return json({ items: [{ id: "GK9", name: "extra" }], hasMore: false });
       }
       return json({
         keys: [
@@ -435,14 +441,17 @@ test("shows the API message when grant fails and keeps the entered values", asyn
   fireEvent.click(screen.getByRole("button", { name: "Permissions for bkt-1" }));
   expect(await screen.findByText("photos")).toBeTruthy();
   if (!screen.queryByRole("dialog")) fireEvent.click(screen.getByRole("button", { name: "Grant key" }));
-  fireEvent.change(screen.getByLabelText("Access key"), { target: { value: "GK9" } });
+  const accessKey = screen.getByLabelText("Access key") as HTMLButtonElement;
+  await waitFor(() => expect(accessKey.disabled).toBe(false));
+  fireEvent.keyDown(accessKey, { key: " " });
+  fireEvent.click(await screen.findByRole("option", { name: "extra (GK9)" }));
   fireEvent.click(screen.getByLabelText("Read"));
   fireEvent.click(screen.getByRole("button", { name: "Grant" }));
   expect(await screen.findByText("bucket key denied")).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("dialog")).toBeTruthy();
   expect(screen.queryByText("GK9", { selector: "code" })).toBeNull();
-  expect((screen.getByLabelText("Access key") as HTMLInputElement).value).toBe("GK9");
+  expect(screen.getByLabelText("Access key").textContent).toContain("extra (GK9)");
   expect(screen.getByRole("checkbox", { name: "Read" }).getAttribute("aria-checked")).toBe("true");
   expect(screen.getByRole("checkbox", { name: "Owner" }).getAttribute("aria-checked")).toBe("false");
   expect(screen.queryByText("Permissions granted")).toBeNull();
@@ -625,29 +634,30 @@ test("shows Granting while the grant is submitting, then Permissions granted", a
           release = resolve;
         });
       }
+      if (call.url.startsWith("/api/keys?")) {
+        return json({ items: [{ id: "GK9", name: "extra" }], hasMore: false });
+      }
       return json({ keys: [] });
     }),
   );
   renderPermissions("bkt-1", true);
   fireEvent.click(screen.getByRole("button", { name: "Permissions for bkt-1" }));
   if (!screen.queryByRole("dialog")) fireEvent.click(screen.getByRole("button", { name: "Grant key" }));
-  fireEvent.change(screen.getByLabelText("Access key"), { target: { value: "GK9" } });
+  const accessKey = screen.getByLabelText("Access key") as HTMLButtonElement;
+  await waitFor(() => expect(accessKey.disabled).toBe(false));
+  fireEvent.keyDown(accessKey, { key: " " });
+  fireEvent.click(await screen.findByRole("option", { name: "extra (GK9)" }));
   fireEvent.click(screen.getByLabelText("Read"));
   fireEvent.click(screen.getByRole("button", { name: "Grant" }));
   const pending = (await screen.findByRole("button", { name: "Granting" })) as HTMLButtonElement;
   expect(pending.disabled).toBe(true);
   expect(pending.textContent).toBe("Granting");
   expect(screen.queryByRole("button", { name: /^Grant$/ })).toBeNull();
-  expect((screen.getByLabelText("Access key") as HTMLInputElement).value).toBe("GK9");
+  expect(screen.getByLabelText("Access key").textContent).toContain("extra (GK9)");
   expect(screen.getByRole("checkbox", { name: "Read" }).getAttribute("aria-checked")).toBe("true");
   expect(screen.queryByText("Permissions granted")).toBeNull();
   release(new Response(null, { status: 204 }));
-  expect(await screen.findByText("Permissions granted")).toBeTruthy();
-  expect((screen.getByLabelText("Access key") as HTMLInputElement).value).toBe("");
-  expect(screen.getByRole("checkbox", { name: "Read" }).getAttribute("aria-checked")).toBe("false");
-  const idle = screen.getByRole("button", { name: /^Grant$/ }) as HTMLButtonElement;
-  expect(idle.disabled).toBe(true);
-  expect(idle.textContent).toBe("Grant");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Grant key" })).toBeNull());
 });
 
 test("shows In progress while revoke is submitting and keeps the dialog when it fails", async () => {

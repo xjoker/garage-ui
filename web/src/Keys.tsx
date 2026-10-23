@@ -182,7 +182,7 @@ async function loadKey(id: string): Promise<AccessKey> {
   return key;
 }
 
-function KeyBuckets({ keyId }: { keyId: string }) {
+function KeyBuckets({ keyId, canManage }: { keyId: string; canManage: boolean }) {
   const buckets = useQuery({
     queryKey: ["key-buckets", keyId],
     queryFn: () => loadKeyBuckets(keyId),
@@ -207,7 +207,7 @@ function KeyBuckets({ keyId }: { keyId: string }) {
             {copy("ui.retry")}</Button>
         </>
       ) : null}
-      {buckets.data && rows.length === 0 ? <p>{copy("ui.this.key.cannot.access.any.buckets")}</p> : null}
+      {buckets.data && rows.length === 0 ? <div className="ui-actions"><p>{copy("ui.this.key.cannot.access.any.buckets")}</p>{canManage ? <Button asChild size="2" variant="soft" color="gray"><a href="#buckets">{copy("ui.back.to.buckets")}</a></Button> : null}</div> : null}
       {rows.length > 0 ? (
         <div className="ui-table-container" role="region" aria-label={copy("nav.buckets")} tabIndex={0}>
           <Table.Root className="ui-table-records"><Table.Header><Table.Row>
@@ -630,6 +630,7 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
   const deleteError = removeKey.error instanceof Error ? removeKey.error.message : null;
   const viewError = viewSecret.error instanceof Error ? viewSecret.error.message : null;
   const detail = detailAddressFromHash(hash);
+  const returnBucketId = new URLSearchParams(window.location.search).get("keyFor");
   const keyDetail = detail?.resource === "key" ? detail : null;
   const addressedKey = useQuery({
     queryKey: ["keys", "detail", keyDetail?.id],
@@ -668,7 +669,7 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
             <div><dt>{copy("ui.created")}</dt><dd>{openedKey.created ? <ReadableInstantText value={openedKey.created} /> : "—"}</dd></div>
             <div><dt>{copy("ux.allow.bucket.creation")}</dt><dd>{openedKey.createBucket === null ? "—" : copy(openedKey.createBucket ? "ui.yes" : "ui.no")}</dd></div>
           </dl> : null}
-          {keyDetail.tab === "buckets" ? <KeyBuckets keyId={keyDetail.id} /> : null}
+          {keyDetail.tab === "buckets" ? <KeyBuckets keyId={keyDetail.id} canManage={canManage} /> : null}
           {keyDetail.tab === "settings" && openedKey && canManage ? (
             <div className="ui-settings">
               <SettingsSection title={translate("General")}>
@@ -844,6 +845,10 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
           onClose={() => {
             setReveal(null);
             viewSecret.reset();
+            if (returnBucketId !== null) {
+              window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.hash}`);
+              goHash(hashForDetail({ resource: "bucket", id: returnBucketId, tab: "permissions" }));
+            }
           }}
         />
       ) : null}

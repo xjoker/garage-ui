@@ -399,7 +399,7 @@ function ScopePicker({
         <TextField.Root size="2" type="search" value={filter} onChange={(event) => onFilterChange(event.target.value)} />
       </label>
       <p className="ui-muted" aria-live="polite">{fill(copy("ux.scope.selected"), { count: String(chosen.size) })}</p>
-      <div className="grid max-h-64 gap-2 overflow-y-auto overscroll-contain pr-1">
+      <div className="ui-token-scope-list">
       {visibleGroups.map((group) => {
         const groupChecked = group.endpoints.every((id) => chosen.has(id));
         return (
@@ -482,7 +482,7 @@ function CreateTokenForm({ open, onOpenChange }: { open: boolean; onOpenChange: 
       <Dialog.Content maxWidth="640px" aria-describedby={undefined} onEscapeKeyDown={(event) => { if (create.isPending || pending !== null) event.preventDefault(); }} onInteractOutside={(event) => event.preventDefault()}>
       <Dialog.Title>{copy("ui.create.token")}</Dialog.Title>
       <form
-        className="ui-form ui-settings"
+        className="ui-form ui-token-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (draft.name.trim().length === 0 || create.isPending) {
@@ -615,7 +615,7 @@ function EditTokenForm({
       <Dialog.Title>{token.name}</Dialog.Title>
       <form
         ref={formRef}
-        className="ui-form ui-settings"
+        className="ui-form ui-token-form"
         onSubmit={(event) => {
           event.preventDefault();
           if (draft.name.trim().length === 0 || update.isPending) {
@@ -895,9 +895,6 @@ export function AdminTokens() {
             <Select.Item value="created">{copy("ui.created")}</Select.Item>
           </Select.Content></Select.Root>
         </label>
-        <p>{copy("ui.default.sort.is.by.name")}</p>
-        <p className="ui-muted">{translate("Filtering and sorting apply to the current page")}</p>
-
       </div>
       {list.isPending ? (
         <LoadingState label={copy("ui.loading.admin.tokens")} />

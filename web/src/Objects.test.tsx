@@ -20,6 +20,7 @@ function openFolderActions(trigger = screen.getByRole("button", { name: /^Action
 }
 
 const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+const originalExecCommand = Object.getOwnPropertyDescriptor(document, "execCommand");
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -30,6 +31,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (originalExecCommand) Object.defineProperty(document, "execCommand", originalExecCommand);
+  else Reflect.deleteProperty(document, "execCommand");
   if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScrollIntoView);
   else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
   cleanup();
@@ -280,11 +283,12 @@ test("opens a bucket, shows the chosen object's type, and returns to the table",
   expect(screen.getByRole("button", { name: "photos/a.txt" })).toBeTruthy();
   expect(screen.getByText("12 B", { selector: "span" })).toBeTruthy();
   expect(screen.getByText("2026-10-11T00:00:00Z")).toBeTruthy();
-  expect(screen.queryByText("east")).toBeNull();
+  expect(screen.getByRole("heading", { level: 2, name: "east" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Open objects (bkt-1)" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "photos/a.txt" }));
   expect(await screen.findByText("Content type text/plain")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Back to buckets" }));
+  window.location.hash = "#buckets";
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
   expect(await screen.findByText("east")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Open objects (bkt-1)" })).toBeTruthy();
   expect(screen.queryByText("Content type text/plain")).toBeNull();
@@ -468,7 +472,7 @@ test("sorts the loaded rows by size or time and says only this page", async () =
   chooseOption("Sort", "Time");
   expect(screen.getByText("Only this page")).toBeTruthy();
   expect(rowOrder()).toEqual(["folder/", "b.txt", "a.txt", "c.txt"]);
-  chooseOption("Sort", "Key");
+  chooseOption("Sort", "Object key");
   expect(screen.queryByText("Only this page")).toBeNull();
   expect(rowOrder()).toEqual(["folder/", "c.txt", "b.txt", "a.txt"]);
 });
@@ -727,7 +731,24 @@ test("clears the selection when the prefix changes", async () => {
   expect(window.location.hash).toBe("#buckets/bkt-1/photos/");
 });
 
-test("asks to select the paths when the page is not a secure context", async () => {
+test("copies selected paths on an insecure HTTP page", async () => {
+  Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+  const execCommand = vi.fn(() => {
+    const field = document.activeElement as HTMLTextAreaElement;
+    expect(field.value.slice(field.selectionStart, field.selectionEnd)).toBe("a.txt");
+    return true;
+  });
+  Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
+  vi.stubGlobal("fetch", vi.fn(async () => json(page([objectRow("a.txt", 1, "2026-10-11T00:00:00Z")]))));
+  renderObjects();
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select a.txt" }));
+  fireEvent.click(screen.getByRole("button", { name: "Copy path" }));
+  expect(await screen.findByText("Copied")).toBeTruthy();
+  expect(execCommand).toHaveBeenCalledWith("copy");
+  expect(screen.queryByRole("textbox", { name: "Selected paths" })).toBeNull();
+});
+
+test("asks to select the paths when browser copying is unavailable", async () => {
   const writeText = vi.fn(async () => undefined);
   Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -1371,7 +1392,7 @@ function rowOrder(): string[] {
 
 async function expectFields(contentType: string, size: number) {
   const details = await screen.findByRole("region", { name: "Object details" });
-  expect(details.textContent).toContain(`Size ${size}`);
+  expect(details.textContent).toContain(`Size:${size} B`);
   expect(details.textContent).toContain(`Content type ${contentType}`);
   expect(details.textContent).toContain("ETag abc");
   expect(details.textContent).toContain("Last modified");
@@ -1497,7 +1518,7 @@ test("large text loads the beginning and the previous load is cancelled", async 
   if (!releaseSecond) {
     throw new Error("missing text preview");
   }
-  releaseSecond(new Response("hello", { status: 206 }));
+  releaseSecond(new Response("hello", { status: 206, headers: { "Content-Range": "bytes 0-4/262145" } }));
   expect((await screen.findByText("hello")).tagName).toBe("PRE");
   const note = screen.getByText("Showing the first 256 KiB.");
   expect(note.tagName).toBe("P");
@@ -1523,6 +1544,23 @@ test("large text loads the beginning and the previous load is cancelled", async 
   expect((await screen.findByText("whole")).tagName).toBe("PRE");
   expect(screen.queryByText("Showing the first 256 KiB.")).toBeNull();
   expect(previewCalls.filter((call) => call.url.endsWith("/object?key=c.txt&preview=1")).length).toBe(1);
+});
+
+test("does not mark a complete ranged text preview as truncated", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("preview=1")) {
+      return new Response("x".repeat(80), { status: 206, headers: { "Content-Range": "bytes 0-79/80" } });
+    }
+    if (url.endsWith("/object?key=note.txt")) {
+      return json({ key: "note.txt", size: 80, etag: "abc", lastModified: "2026-10-11T00:00:00Z", contentType: "text/plain" });
+    }
+    return json(page([objectRow("note.txt", 80, "2026-10-11T00:00:00Z")]));
+  }));
+  renderObjects();
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Select note.txt" }));
+  expect((await screen.findByText("x".repeat(80))).tagName).toBe("PRE");
+  expect(screen.queryByText("Showing the first 256 KiB.")).toBeNull();
 });
 
 const imageTypes = [
@@ -1726,7 +1764,7 @@ test("a bucket without keys explains how to restore access instead of showing an
   }));
   renderObjects("bkt-1", { canWrite: true, canTransfer: true, canManage: true });
   expect(await screen.findByText("Create an S3 key with read and write access to this bucket, then retry.")).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Create key" }).getAttribute("href")).toBe("#keys");
+  expect(screen.getByRole("link", { name: "Create key" }).getAttribute("href")).toBe("/?keyFor=bkt-1#keys");
   expect(screen.getByRole("link", { name: "Bucket permissions" }).getAttribute("href")).toBe("#bucket/bkt-1/permissions");
   expect(screen.queryByRole("combobox", { name: "Bucket key" })).toBeNull();
   expect(screen.queryByText("no_usable_key")).toBeNull();
@@ -1776,7 +1814,7 @@ test("an admin inspecting photos/cat.jpg sees version u1", async () => {
   fireEvent.click(inspect);
   expect((await screen.findByText("u1")).textContent).toBe("u1");
   const inspector = screen.getByRole("region", { name: "Inspect photos/cat.jpg" });
-  expect(within(inspector).getByText("Size 1")).toBeTruthy();
+  expect(inspector.textContent).toContain("Size:1 B");
   expect(within(inspector).getByText("2026-10-11T00:00:00Z")).toBeTruthy();
   expect(screen.getByText("encrypted no").textContent).toBe("encrypted no");
   expect(screen.getByText("uploading no").textContent).toBe("uploading no");
@@ -1863,7 +1901,7 @@ test("left and right keys select the previous and next object in the same direct
   async function expectSize(size: number) {
     const details = await screen.findByRole("region", { name: "Object details" });
     await waitFor(() => {
-      expect(details.textContent).toContain(`Size ${size}`);
+      expect(details.textContent).toContain(`Size:${size} B`);
     });
   }
 

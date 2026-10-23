@@ -10,6 +10,7 @@ import { bucketLocationFromHash, hashForDetail, hashForObjects, useLocationHash 
 import { releaseHash } from "./unsaved";
 import { DataCell, EmptyState, LoadingState, PageHeader, Pagination, ResourceIdentity } from "./ui";
 import { UploadPanel } from "./UploadPanel";
+import { copyText } from "./clipboard";
 
 type ObjectEntry = {
   kind: "object";
@@ -94,6 +95,11 @@ type DeleteFailure = {
 };
 
 const PAGE_LIMIT = "100";
+
+function objectCount(count: number): string {
+  return count === 1 ? copy("ui.one.object") : fill(copy("ui.objects"), { used: count });
+}
+
 function unavailableMessage(): string {
   return copy("ui.objects.are.unavailable");
 }
@@ -428,10 +434,10 @@ async function readPreviewText(path: string, signal: AbortSignal): Promise<TextP
     noteUnauthenticated(response.status, codeOf(text), requestGeneration);
     throw new Error(unavailableMessage());
   }
-  return {
-    body: await response.text(),
-    partial: response.status === 206,
-  };
+  const contentRange = response.headers.get("Content-Range");
+  const range = contentRange?.match(/^bytes\s+(\d+)-(\d+)\/(\d+)$/i) ?? null;
+  const partial = response.status === 206 && (range === null || Number(range[3]) > Number(range[2]) + 1);
+  return { body: await response.text(), partial };
 }
 
 function InlineBody({
@@ -679,19 +685,6 @@ function rangeKeys(visibleKeys: readonly string[], anchor: string | null, key: s
   return visibleKeys.slice(from, to + 1);
 }
 
-async function copyText(value: string): Promise<"copied" | "manual"> {
-  const clipboard = navigator.clipboard;
-  if (!window.isSecureContext || typeof clipboard?.writeText !== "function") {
-    return "manual";
-  }
-  try {
-    await clipboard.writeText(value);
-    return "copied";
-  } catch {
-    return "manual";
-  }
-}
-
 function ObjectRowSummary({ entry }: { entry: ObjectEntry }) {
   const { language } = useI18n();
   const date = new Date(entry.lastModified);
@@ -743,6 +736,8 @@ export function Objects({
   const [trackedPrefix, setTrackedPrefix] = useState(prefix);
   const [kept, setKept] = useState<{ prefix: string; page: ObjectPage } | null>(null);
   const [copyNote, setCopyNote] = useState<"copied" | "manual" | null>(null);
+  const pathsField = useRef<HTMLTextAreaElement>(null);
+  const pathsContainer = useRef<HTMLDivElement>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [keyChoice, setKeyChoice] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
@@ -1074,7 +1069,24 @@ export function Objects({
   }
 
   function copyPaths() {
-    void copyText(pathText).then((result) => {
+    void copyText(pathText, () => {
+      const field = pathsField.current;
+      const container = pathsContainer.current;
+      if (!field || !container) return false;
+      const previousFocus = document.activeElement;
+      const wasHidden = container.hidden;
+      container.hidden = false;
+      field.focus();
+      field.select();
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      } finally {
+        container.hidden = wasHidden;
+        if (previousFocus instanceof HTMLElement) previousFocus.focus();
+      }
+    }).then((result) => {
       setCopyNote(result);
     });
   }
@@ -1183,7 +1195,7 @@ export function Objects({
         >
           <Select.Trigger aria-label={copy("ui.sort")} />
           <Select.Content>
-            <Select.Item value="key">{copy("ui.key.2")}</Select.Item>
+            <Select.Item value="key">{copy("ui.object.key")}</Select.Item>
             <Select.Item value="size">{copy("ui.size")}</Select.Item>
             <Select.Item value="time">{copy("ui.time")}</Select.Item>
           </Select.Content>
@@ -1214,7 +1226,7 @@ export function Objects({
           <p>{copy("objects.key.help")}</p>
           {canManage ? <div className="ui-actions">
             <Button asChild size="2" variant="soft" color="gray"><a href={hashForDetail({ resource: "bucket", id: bucketId, tab: "permissions" })}>{copy("objects.bucket.permissions")}</a></Button>
-            <Button asChild size="2" variant="soft" color="gray"><a href="#keys">{copy("ui.create.key")}</a></Button>
+            <Button asChild size="2" variant="soft" color="gray"><a href={`${window.location.pathname}?keyFor=${encodeURIComponent(bucketId)}#keys`}>{copy("ui.create.key")}</a></Button>
           </div> : null}
           {keyChoices.isPending ? <p role="status">{copy("ui.loading.keys")}</p> : null}
           {keyChoices.isSuccess && keyChoices.data.length === 0 ? <p>{copy("objects.no.keys.help")}</p> : null}
@@ -1243,11 +1255,13 @@ export function Objects({
               </Select.Content>
             </Select.Root>
           </label>
-          <Button size="2" variant="soft" color="gray"
-            type="submit"
-            disabled={keyChoice.length === 0 || chooseKey.isPending}
-          >
-            {copy("ui.use.this.key")}</Button>
+          <div className="ui-field-actions">
+            <Button size="2" variant="soft" color="gray"
+              type="submit"
+              disabled={keyChoice.length === 0 || chooseKey.isPending}
+            >
+              {copy("ui.use.this.key")}</Button>
+          </div>
           {chooseKey.error instanceof Error ? <p>{chooseKey.error.message}</p> : null}
         </form>
           ) : null}
@@ -1269,7 +1283,7 @@ export function Objects({
       {searching && found.data?.truncated && found.data.reason ? <p>{found.data.reason}</p> : null}
       {shownPicked.length > 0 ? (
         <div className="ui-panel ui-actions ui-objects-bulk">
-          <span className="ui-status">{fill(copy("ui.objects"), { used: shownPicked.length })}</span>
+          <span className="ui-status">{objectCount(shownPicked.length)}</span>
           <Button size="2" variant="soft" color="gray" type="button" onClick={() => {
             setCopyNote(null);
             setFeedback(null);
@@ -1370,16 +1384,15 @@ export function Objects({
             </Dialog.Root>
           ) : null}
           {copyNote === "copied" ? <p>{copy("ui.copied")}</p> : null}
-          {copyNote === "manual" ? (
-            <>
+            <div ref={pathsContainer} hidden={copyNote !== "manual"}>
               <p>{copy("ui.select.the.paths.and.copy.them")}</p>
               <TextArea size="2"
+                ref={pathsField}
                 readOnly
                 aria-label={copy("ui.selected.paths")}
                 value={pathText}
               />
-            </>
-          ) : null}
+            </div>
         </div>
       ) : null}
       {showRows && visible.length > 0 ? (
@@ -1478,7 +1491,7 @@ export function Objects({
           {previewFailure ? <><p>{previewFailure.message}</p>{previewFailure.code ? <p>{previewFailure.code}</p> : null}<Button size="2" variant="soft" color="gray" onClick={() => { void previewMeta.refetch(); }}>{copy("ui.retry")}</Button></> : null}
           {preview ? <>
           <h3 className="ui-identifier">{preview.key}</h3>
-          <p>{fill(copy("ui.size.2"), { size: preview.size })}</p>
+          <div className="ui-preview-meta"><span>{copy("ui.size")}:</span><CompactCapacityText digits={String(preview.size)} /></div>
           <p>{fill(copy("ui.content.type"), { contentType: preview.contentType })}</p>
           <p>{fill(copy("ui.etag"), { etag: preview.etag })}</p>
           <div>
@@ -1500,7 +1513,7 @@ export function Objects({
       {inspected !== null ? (
         <section ref={inspectPanel} tabIndex={-1} className="ui-panel" aria-label={fill(copy("ui.inspect.2"), { inspected: inspected })}>
           {inspectedEntry ? <div className="ui-form">
-            <p>{fill(copy("ui.size.2"), { size: inspectedEntry.size })}</p>
+            <div className="ui-preview-meta"><span>{copy("ui.size")}:</span><CompactCapacityText digits={String(inspectedEntry.size)} /></div>
             <p>{copy("ui.last.modified")} <ReadableInstantText value={inspectedEntry.lastModified} /></p>
           </div> : null}
           {inspect.isPending ? <p role="status">{copy("ui.working")}</p> : null}

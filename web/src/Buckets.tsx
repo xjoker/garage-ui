@@ -10,7 +10,6 @@ import {
   bucketTabs,
   detailAddressFromHash,
   hashForDetail,
-  hashForObjects,
   useLocationHash,
 } from "./Nav";
 import { Objects } from "./Objects";
@@ -393,10 +392,10 @@ function objectUsage(bucket: Bucket): string | null {
     return fill(copy("ui.of.objects"), { used: used, text: quota.text });
   }
   if (used !== null && quota?.kind === "unset") {
-    return fill(copy("ui.objects.object.quota.is.not.set"), { used: used });
+    return fill(copy("ui.objects.object.quota.is.not.set"), { objects: objectCount(used) });
   }
   if (used !== null) {
-    return fill(copy("ui.objects"), { used: used });
+    return objectCount(used);
   }
   if (quota?.kind === "digits") {
     return fill(copy("ui.object.quota"), { text: quota.text });
@@ -405,6 +404,10 @@ function objectUsage(bucket: Bucket): string | null {
     return copy("ui.object.quota.is.not.set");
   }
   return null;
+}
+
+function objectCount(used: string | number): string {
+  return String(used) === "1" ? copy("ui.one.object") : fill(copy("ui.objects"), { used: used });
 }
 
 function fieldText(value: WholeNumber): string {
@@ -496,7 +499,7 @@ function QuotaEditor({ bucketId, quotas }: { bucketId: string; quotas: Quotas })
       }}
     >
       <label className={`${wrap} ui-field`}>
-        {copy("ui.max.size")}<TextField.Root size="2"
+        {copy("ui.max.size.bytes")}<TextField.Root size="2"
           aria-label={fill(copy("ui.max.size.for"), { bucketId: bucketId })}
           inputMode="numeric"
           autoComplete="off"
@@ -505,6 +508,7 @@ function QuotaEditor({ bucketId, quotas }: { bucketId: string; quotas: Quotas })
             setMaxSize(event.target.value);
           }}
         />
+        <span className="ui-muted">{copy("ui.whole.bytes.only")}</span>
       </label>
       <label className={`${wrap} ui-field`}>
         {copy("ui.max.objects")}<TextField.Root size="2"
@@ -518,7 +522,7 @@ function QuotaEditor({ bucketId, quotas }: { bucketId: string; quotas: Quotas })
         />
       </label>
       {error ? <p className="ui-alert">{error}</p> : null}
-      {quotaStatus ? <p>{quotaStatus}</p> : null}
+      {quotaStatus && error === null ? <p>{quotaStatus}</p> : null}
       <Button size="2" variant="solid"
         className={wrap}
         type="submit"
@@ -1387,27 +1391,34 @@ function IncompleteUploadsPanel({ bucketId }: { bucketId: string }) {
   );
 }
 
-function CreateBucketForm({ onPendingChange, onCancel }: { onPendingChange: (pending: boolean) => void; onCancel: () => void }) {
+function bucketCreateError(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  if (/invalid bucket name/i.test(error.message)) {
+    return copy("ui.bucket.name.invalid");
+  }
+  return error.message;
+}
+
+function CreateBucketForm({ onPendingChange, onCancel, onCreated }: { onPendingChange: (pending: boolean) => void; onCancel: () => void; onCreated: () => void }) {
   const client = useQueryClient();
   const [globalAlias, setGlobalAlias] = useState("");
-  const [note, setNote] = useState<string | null>(null);
   const create = useMutation({
     mutationFn: (alias: string) =>
       api("/api/buckets", { method: "POST", body: JSON.stringify(createBody(alias)) }),
     onMutate: () => {
       onPendingChange(true);
-      setNote(null);
     },
     onSettled: () => onPendingChange(false),
     onSuccess: async () => {
       setGlobalAlias("");
-      setNote(copy("ui.bucket.created"));
       // Invalidation reuses an initial fetch with no cached data; cancel its stale snapshot first.
       await client.cancelQueries({ queryKey: ["buckets"], exact: true });
       await client.invalidateQueries({ queryKey: ["buckets"] });
+      onCreated();
+      onCancel();
     },
   });
-  const error = create.error instanceof Error ? create.error.message : null;
+  const error = bucketCreateError(create.error);
   return (
     <form
       className="ui-form"
@@ -1426,7 +1437,6 @@ function CreateBucketForm({ onPendingChange, onCancel }: { onPendingChange: (pen
         />
       </label>
       {error ? <p className="ui-alert">{error}</p> : null}
-      {note ? <p>{note}</p> : null}
       <div className="ui-dialog-actions">
         <Button size="2" color="gray" variant="soft" type="button" disabled={create.isPending} onClick={onCancel}>{copy("ui.cancel")}</Button>
         <Button size="2" variant="solid"
@@ -1762,7 +1772,7 @@ export function Buckets({
             onEscapeKeyDown={(event) => { if (createPending) event.preventDefault(); }}
             onInteractOutside={(event) => { if (createPending) event.preventDefault(); }}>
             <Dialog.Title>{copy("ui.create.bucket")}</Dialog.Title>
-            <CreateBucketForm onPendingChange={setCreatePending} onCancel={() => setCreating(false)} />
+            <CreateBucketForm onPendingChange={setCreatePending} onCancel={() => setCreating(false)} onCreated={() => setNotice(copy("ui.bucket.created"))} />
           </Dialog.Content>
         </Dialog.Root> : null}
       </PageHeader> : null}
@@ -1916,13 +1926,13 @@ export function Buckets({
                 <DataCell label={copy("ui.usage")} className="ui-bucket-usage-cell">
                   <div className="ui-bucket-usage-desktop"><UsageText bucket={bucket} /></div>
                   {objectUsage(bucket) !== null || bucket.bytes !== null || bucket.quotas?.maxSize !== undefined ? <details className="ui-bucket-usage-mobile">
-                    <summary><span>{copy("ui.usage")}</span>{bucket.objects !== null ? <span>{fill(copy("ui.objects"), { used: bucket.objects })}</span> : null}{bucket.bytes !== null ? <span><CapacityText digits={bucket.bytes} /></span> : null}</summary>
+                    <summary><span>{copy("ui.usage")}</span>{bucket.objects !== null ? <span>{objectCount(bucket.objects)}</span> : null}{bucket.bytes !== null ? <span><CapacityText digits={bucket.bytes} /></span> : null}</summary>
                     <UsageText bucket={bucket} />
                   </details> : null}
                 </DataCell>
                 <DataCell kind="actions" className="ui-record-actions-wide" label={copy("ui.actions")}><div className="ui-actions">
                   <Button size="2" color="gray" variant="soft" type="button" aria-label={`${translate("Open objects")} (${bucket.id})`}
-                    onClick={() => goHash(hashForObjects(bucket.id, ""))}>{translate("Open objects")}</Button>
+                    onClick={() => goHash(hashForDetail({ resource: "bucket", id: bucket.id, tab: "objects" }))}>{translate("Open objects")}</Button>
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger><Button size="2" color="gray" variant="soft" aria-label={`${copy("ui.actions")} ${bucket.id}`}>{copy("ui.actions")}</Button></DropdownMenu.Trigger>
                     <DropdownMenu.Content>

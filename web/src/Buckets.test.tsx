@@ -328,8 +328,9 @@ test("explains an empty list and lets an admin create a bucket with only a globa
   fireEvent.click(screen.getByRole("button", { name: "Create bucket" }));
   expect(await screen.findByText("bucket-new", { selector: "code" })).toBeTruthy();
   expect(screen.getByText("photos")).toBeTruthy();
-  expect(screen.getByText("Bucket created")).toBeTruthy();
-  expect((screen.getByRole("textbox", { name: "Global alias" }) as HTMLInputElement).value).toBe("");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: "Create bucket" })).toBeNull();
+  });
   const post = calls.find((call) => call.method === "POST" && call.url === "/api/buckets");
   expect(post).toEqual({
     url: "/api/buckets",
@@ -379,7 +380,9 @@ test("refreshes after creating a bucket while the initial list response is pendi
   expect(listCalls).toBe(1);
   fireEvent.change(screen.getByRole("textbox", { name: "Global alias" }), { target: { value: "photos" } });
   fireEvent.click(screen.getByRole("button", { name: "Create bucket" }));
-  expect(await screen.findByText("Bucket created")).toBeTruthy();
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: "Create bucket" })).toBeNull();
+  });
   await act(async () => {
     releaseInitial(json({ items: [], hasMore: false }));
   });
@@ -755,7 +758,7 @@ test("clears both quotas with null and keeps the entered values when save fails"
   expect(objects.value).toBe("");
   expect(bodies).toEqual(['{"maxSize":null,"maxObjects":null}']);
   expect(screen.getByText("1 of 20 objects")).toBeTruthy();
-  expect(screen.getByText("Save failed")).toBeTruthy();
+  expect(screen.queryByText("Save failed")).toBeNull();
   expect(screen.getByRole("button", { name: "Save quotas for bkt-1" })).toBeTruthy();
 });
 
@@ -1525,7 +1528,7 @@ test("bucket settings show one named title and independent readable sections", a
     expect(screen.getByRole("region", { name })).toBeTruthy();
   }
   const quotas = within(screen.getByRole("region", { name: "Quotas" }));
-  expect(quotas.getByLabelText(`Max size for ${id}`).closest("label")?.textContent).toBe("Max size");
+  expect(quotas.getByLabelText(`Max size for ${id}`).closest("label")?.textContent).toContain("Max size (bytes)");
   expect(quotas.getByRole("button", { name: `Save quotas for ${id}` }).textContent).toBe("Save quotas");
   expect(screen.getByText(id, { selector: "code" })).toBeTruthy();
   expect(screen.getByRole("button", { name: `Delete ${id}` })).toBeTruthy();

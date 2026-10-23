@@ -501,6 +501,7 @@ function CreateAccount({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       setShare(false);
       setError(null);
       await client.invalidateQueries({ queryKey: ["users"] });
+      onOpenChange(false);
     },
     onError: (caught) => {
       setError(errorText(caught));
@@ -514,7 +515,7 @@ function CreateAccount({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       <Dialog.Title>{copy("ui.create.user")}</Dialog.Title>
     <form
       aria-label={copy("ui.create.user")}
-      className="ui-form ui-settings"
+      className="ui-form ui-create-user-form"
       onSubmit={(event) => {
         event.preventDefault();
         if (create.isPending) return;
