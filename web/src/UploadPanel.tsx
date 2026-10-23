@@ -506,13 +506,13 @@ export function UploadPanel({
       }}
       onDrop={onDrop}
     >
-      <p className="ui-muted">{copy("ui.drop.files.here")}</p>
+      <header className="ui-upload-header"><h3>{copy("ui.upload")}</h3><p className="ui-muted">{copy("ui.drop.files.here")}</p></header>
       {pendingDrops > 0 ? <div className="ui-actions">
-        <span className="ui-status">{copy("ui.queued")} · {pendingDrops}</span>
+        <span className="ui-status">{copy("ui.queued")} ({pendingDrops})</span>
         <Button size="2" variant="soft" color="gray" type="button" onClick={cancelAll}>{copy("ui.cancel")}</Button>
       </div> : null}
       {dropError !== null ? <p className="ui-alert" role="alert">{dropError}</p> : null}
-      <div className="ui-toolbar items-end">
+      <div className="ui-toolbar ui-upload-controls items-end">
       <label className="ui-field flex-1">
         {copy("ui.choose.files")}<input
           className="ui-file-input w-full min-w-0 max-w-full"
@@ -539,7 +539,7 @@ export function UploadPanel({
       </div>
       <Button size="2" variant="soft" color="gray" type="button" onClick={clearFinished}>
         {copy("ui.clear.finished")}</Button>
-      <ul className="grid gap-2" aria-live="polite">
+      <ul className="ui-upload-queue grid gap-2" aria-live="polite">
         {rows.map((row) => {
           const prompt = row.phase.kind === "queued" && needsPrompt(row, rows, keys);
           return (

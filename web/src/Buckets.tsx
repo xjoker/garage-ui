@@ -14,7 +14,7 @@ import {
   useLocationHash,
 } from "./Nav";
 import { Objects } from "./Objects";
-import { DataCell, ResourceIdentity, SettingsSection } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, ResourceIdentity, SettingsSection } from "./ui";
 import { CapacityText, CompactCapacityText, copy, fill, translate } from "./i18n";
 import { releaseHash, savePhase, saveStatus, setFormDirty } from "./unsaved";
 
@@ -429,7 +429,7 @@ function UsageText({ bucket }: { bucket: Bucket }) {
     return null;
   }
   return (
-    <div className="grid gap-2">
+    <div className="ui-bucket-usage grid gap-2">
       {objects ? <p>{objects}</p> : null}
       <dl className="grid gap-2">
         {bucket.bytes !== null ? <div>
@@ -1427,7 +1427,7 @@ function CreateBucketForm({ onPendingChange, onCancel }: { onPendingChange: (pen
       </label>
       {error ? <p className="ui-alert">{error}</p> : null}
       {note ? <p>{note}</p> : null}
-      <div className="ui-actions">
+      <div className="ui-dialog-actions">
         <Button size="2" color="gray" variant="soft" type="button" disabled={create.isPending} onClick={onCancel}>{copy("ui.cancel")}</Button>
         <Button size="2" variant="solid"
           type="submit"
@@ -1511,7 +1511,7 @@ function AliasControls({ bucketId }: { bucketId: string }) {
           )}
           {error ? <p className="ui-alert">{error}</p> : null}
           {note ? <p>{note}</p> : null}
-          <div className="ui-actions">
+          <div className="ui-dialog-actions">
             <Button size="2" color="gray" variant="soft" type="button" disabled={add.isPending} onClick={() => setOpen(false)}>{copy("ui.cancel")}</Button>
             <Button size="2" variant="solid"
               className={wrap}
@@ -1584,7 +1584,7 @@ function DeleteBucketDialog({
         <Dialog.Title>{fill(copy("ui.delete.bucket"), { bucketId })}</Dialog.Title>
         <Dialog.Description>{fill(copy("ui.this.permanently.deletes.bucket.and.its.aliases.garage"), { bucketId })}</Dialog.Description>
         {error ? <p className="ui-alert">{error}</p> : null}
-        <div className="ui-actions">
+        <div className="ui-dialog-actions">
           <Button ref={cancelRef} size="2" color="gray" variant="soft" disabled={pending} onClick={onCancel}>{copy("ui.cancel")}</Button>
           <Button size="2" color="red" disabled={pending} onClick={() => { if (!pending) onConfirm(); }}>{copy(pending ? "ui.deleting.bucket" : "ui.delete.bucket.2")}</Button>
         </div>
@@ -1755,8 +1755,7 @@ export function Buckets({
 
   return (
     <section className="ui-page" aria-label={copy("nav.buckets")} aria-busy={view.busy}>
-      {listing ? <header className="ui-page-header">
-        <h2>{copy("nav.buckets")}</h2>
+      {listing ? <PageHeader title={copy("nav.buckets")}>
         {listing && canManage ? <Dialog.Root open={creating} onOpenChange={(open) => { if (!createPending) setCreating(open); }}>
           <Dialog.Trigger><Button size="2" type="button">{copy("common.create")}</Button></Dialog.Trigger>
           <Dialog.Content maxWidth="480px" aria-busy={createPending} aria-describedby={undefined}
@@ -1766,7 +1765,7 @@ export function Buckets({
             <CreateBucketForm onPendingChange={setCreatePending} onCancel={() => setCreating(false)} />
           </Dialog.Content>
         </Dialog.Root> : null}
-      </header> : null}
+      </PageHeader> : null}
       {bucketDetail ? (
         <DetailTabs
           key={bucketDetail.id}
@@ -1801,8 +1800,9 @@ export function Buckets({
           {bucketDetail.tab === "permissions" ? (
             <BucketPermissions bucketId={bucketDetail.id} canManage={canManage} expanded />
           ) : null}
-          {bucketDetail.tab === "overview" && openedBucket ? <div className="ui-panel"><UsageText bucket={openedBucket} />
-            {openedBucket.aliases.map((alias, index) => <p key={index}>{alias.name}</p>)}
+          {bucketDetail.tab === "overview" && openedBucket ? <div className="ui-panel">
+            <h3>{copy("ui.usage")}</h3><UsageText bucket={openedBucket} />
+            {openedBucket.aliases.length > 0 ? <div className="ui-resource-aliases"><h3>{copy("ui.aliases")}</h3><div className="ui-actions">{openedBucket.aliases.map((alias, index) => <span className="ui-alias-chip" key={index}>{alias.name}</span>)}</div></div> : null}
           </div> : null}
           {bucketDetail.tab === "settings" && openedBucket ? <div className="ui-settings">
             <SettingsSection title={translate("General")}>
@@ -1834,7 +1834,7 @@ export function Buckets({
         </DetailTabs>
       ) : null}
       {bucketDetail === null && view.loading ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.buckets")}>{copy("ui.loading.buckets")}</div>
+        <LoadingState label={copy("ui.loading.buckets")} />
       ) : null}
       {bucketDetail === null && view.refreshing ? <p>{copy("ui.refreshing.buckets")}</p> : null}
       {bucketDetail === null && view.failure && !isGarageDown(view.failure) ? (
@@ -1892,11 +1892,9 @@ export function Buckets({
         />
       ) : null}
       {bucketDetail === null && view.empty ? (
-        <p>
-          {canManage && !browsing
+        <EmptyState title={canManage && !browsing
             ? copy("ui.there.are.no.buckets.create.the.first.bucket")
-            : copy("ui.there.are.no.buckets")}
-        </p>
+            : copy("ui.there.are.no.buckets")} />
       ) : null}
       {listing && list.data && shown.length > 0 ? (
         <div className="ui-table-container min-w-0" role="region" aria-label={copy("ui.bucket")} tabIndex={0}>
@@ -1912,7 +1910,7 @@ export function Buckets({
                     onClick={(event) => { event.preventDefault(); goHash(hashForDetail({ resource: "bucket", id: bucket.id, tab: "overview" })); }}>
                     {bucket.aliases[0]?.name || copy("ui.bucket")}
                   </a>
-                  {bucket.aliases.slice(1).map((alias, aliasIndex) => <span key={aliasIndex}> · <span>{alias.name}</span></span>)}
+                  {bucket.aliases.slice(1).map((alias, aliasIndex) => <span key={aliasIndex} className="ui-bucket-alias-label">{alias.name}</span>)}
                   <ResourceIdentity id={bucket.id} compact />
                 </DataCell>
                 <DataCell label={copy("ui.usage")} className="ui-bucket-usage-cell">

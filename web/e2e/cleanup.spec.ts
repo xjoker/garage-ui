@@ -43,7 +43,7 @@ test("cleans up incomplete uploads older than the threshold", async ({ page }) =
     await assertWidth(page, "cleanup-uploads", 360);
 
     // A new upload is already older than zero seconds. The field accepts whole hours, so 0 removes it.
-    await settings.getByLabel("Older than hours").fill("0");
+    await settings.getByLabel("Older than (hours)").fill("0");
     await expect(settings.getByRole("button", { name: "Clean up", exact: true })).toBeEnabled();
     const pending = page.waitForResponse((response) => {
       const url = new URL(response.url());
@@ -156,7 +156,7 @@ async function createKey(page: Page, name: string): Promise<{ keyId: string; sec
   const keyId = (await heading.innerText()).replace(/^Secret for /, "");
   const secret = await page.getByLabel("Secret access key").inputValue();
   expect(secret.length).toBeGreaterThan(8);
-  await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   return { keyId, secret };
 }

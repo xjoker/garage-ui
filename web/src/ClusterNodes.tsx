@@ -8,8 +8,9 @@ import { DetailTabs } from "./DetailTabs";
 import { isGarageDown } from "./garageDown";
 import { detailAddressFromHash, hashForDetail, nodeTabs, useLocationHash } from "./Nav";
 import { releaseHash } from "./unsaved";
-import { DataCell, ResourceIdentity } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, ResourceIdentity } from "./ui";
 import { CompactCapacityText, copy, fill, translate } from "./i18n";
+import { Icon } from "./Icon";
 
 const HIDDEN = new Set([
   "layoutVersion",
@@ -535,7 +536,7 @@ function NodeBlockPurge({ id, onAsk, pending = false }: { id: string; onAsk: (ha
   const [hash, setHash] = useState("");
   return (
     <>
-      <label className="block break-all">
+      <label className="ui-field break-all">
         <span className="text-sm">{copy("ui.block.hash")}</span>
         <TextField.Root size="2"
           aria-label={fill(copy("ui.block.hash.for"), { id })}
@@ -712,11 +713,11 @@ export function OperationNodeSelection({ route, all = false }: {
       {nodes.error instanceof Error && !isGarageDown(nodes.error) ? <p role="alert">{nodes.error.message}</p> : null}
       {shownCode(nodes.error) ? <p className="ui-identifier">{shownCode(nodes.error)}</p> : null}
       {nodes.isError ? <Button size="2" variant="soft" color="gray" onClick={() => { void nodes.refetch(); }}>{copy("ui.retry.nodes")}</Button> : null}
-      <div className="ui-actions">
+      <div className="ui-node-options">
         {all ? <Button asChild size="2" variant="soft" color="gray"><a href="#workers/*" onClick={(event) => navigate(event, "#workers/*")}>{translate("All nodes")}</a></Button> : null}
         {nodes.data?.nodes.map(node => {
           const next = `#${route}/${encodeURIComponent(node.id)}`;
-          return <Button key={node.id} asChild size="2" variant="soft" color="gray"><a href={next} aria-label={node.hostname ?? fill(copy("ui.node"), { id: node.id })} onClick={(event) => navigate(event, next)}>{node.hostname ?? (node.id.length > 15 ? `${node.id.slice(0, 8)}…${node.id.slice(-6)}` : node.id)}</a></Button>;
+          return <Button key={node.id} asChild size="2" variant="soft" color="gray"><a href={next} aria-label={node.hostname ?? fill(copy("ui.node"), { id: node.id })} onClick={(event) => navigate(event, next)}><Icon name="nodes" /><span>{node.hostname ?? (node.id.length > 15 ? `${node.id.slice(0, 8)}…${node.id.slice(-6)}` : node.id)}</span><Icon name="chevron" /></a></Button>;
         })}
       </div>
       {nodes.isSuccess && nodes.data.nodes.length === 0 ? <p>{copy("ui.there.are.no.nodes.connect.the.first.node")}</p> : null}
@@ -866,10 +867,9 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
   );
   return (
     <section className="ui-page min-w-0" aria-label={copy("ui.cluster.nodes")}>
-      {nodeDetail === null ? <header className="ui-page-header">
-        <h2>{copy("ui.nodes")}</h2>
+      {nodeDetail === null ? <PageHeader title={copy("ui.nodes")}>
         {layoutVersion !== null ? <p className="ui-muted">{translate("Layout version")}: <span className="ui-identifier">{layoutVersion}</span></p> : null}
-      </header> : null}
+      </PageHeader> : null}
       {nodeDetail ? (
         <DetailTabs
           label={fill(copy("ui.node"), { id: nodeDetail.id })}
@@ -911,10 +911,6 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
           ) : null}
           {canWrite && openedNode && nodeDetail.tab === "maintenance" ? (
             <div className="ui-maintenance" aria-label={copy("tab.maintenance")}>
-              <header className="ui-maintenance-header">
-                <h3>{fill(copy("ui.maintenance.for"), { name: openedNode.hostname ?? openedNode.id })}</h3>
-                <p>{fill(copy("ui.maintenance.target"), { id: openedNode.id })}</p>
-              </header>
               {openedNode.capacity !== null ? <section className="ui-maintenance-section" aria-labelledby="node-layout-maintenance">
                 <h4 id="node-layout-maintenance">{copy("ui.capacity.and.layout")}</h4>
                 <p>{copy("ui.capacity.layout.consequence")}</p>
@@ -943,7 +939,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
       ) : null}
       {nodeDetail === null ? (
         <>
-      <div className="ui-toolbar">
+      <div className="ui-toolbar ui-resource-filters">
         <label className="ui-field">
           <span className="text-sm">{copy("ui.filter.nodes")}</span>
           <TextField.Root size="2"
@@ -980,7 +976,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
         </>
       ) : null}
       {nodes.isPending ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.nodes")}>{copy("ui.loading.nodes")}</div>
+        <LoadingState label={copy("ui.loading.nodes")} />
       ) : null}
       {nodes.isError && !isGarageDown(nodes.error) ? (
         <>
@@ -996,7 +992,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
         </>
       ) : null}
       {nodeDetail === null && nodes.isSuccess && rows.length === 0 ? (
-        <p>{copy("ui.there.are.no.nodes.connect.the.first.node")}</p>
+        <EmptyState title={copy("ui.there.are.no.nodes.connect.the.first.node")} />
       ) : null}
       {canWrite && nodeDetail === null ? <section className="ui-maintenance ui-cluster-maintenance" aria-labelledby="cluster-maintenance">
       <header className="ui-maintenance-header"><h3 id="cluster-maintenance">{copy("tab.maintenance")}</h3></header>
@@ -1139,7 +1135,7 @@ export function ClusterNodes({ canWrite = false }: { canWrite?: boolean }) {
             <Table.Body role="rowgroup">
           {shown.map((node) => (
             <Table.Row key={node.id} role="row">
-              <DataCell label={copy("ui.hostname")} kind="identity"><a aria-label={`${node.hostname ?? "—"} · ${fill(copy("ui.node"), { id: node.id })}`} href={hashForDetail({resource:"node",id:node.id,tab:"information"})}>{node.hostname ?? "—"}</a>
+              <DataCell label={copy("ui.hostname")} kind="identity"><a aria-label={`${node.hostname ?? "—"}, ${fill(copy("ui.node"), { id: node.id })}`} href={hashForDetail({resource:"node",id:node.id,tab:"information"})}>{node.hostname ?? "—"}</a>
                 {node.id.length > 15 ? <details className="ui-identity-details"><summary className="ui-identifier">{node.id.slice(0, 8)}…{node.id.slice(-6)} <span className="ui-muted">{copy("common.fullId")}</span></summary><code className="ui-identifier">{node.id}</code></details> : <p className="ui-identifier">{node.id}</p>}
                 {node.addr !== null ? <p className="ui-muted ui-identifier">{node.addr}</p> : null}
                 {node.garageVersion !== null ? <p className="ui-muted">{node.garageVersion}</p> : null}

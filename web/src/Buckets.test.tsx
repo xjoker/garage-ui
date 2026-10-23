@@ -1025,7 +1025,7 @@ test("filters loaded buckets from the query string and keeps that choice in the 
   expect(screen.queryByText("zed", { selector: "code" })).toBeNull();
   expect(screen.queryByText("nope", { selector: "code" })).toBeNull();
   expect((screen.getByLabelText("Filter buckets") as HTMLInputElement).value).toBe("EAST");
-  expect(screen.getByText("Default order is Id.").textContent).toBe("Default order is Id.");
+  expect(screen.getByText("Default sort: ID").textContent).toBe("Default sort: ID");
   expect(screen.getByText("Only loaded rows").textContent).toBe("Only loaded rows");
   expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   expect(screen.queryByText("There are no buckets.")).toBeNull();
@@ -1333,7 +1333,7 @@ test("shows incomplete uploads and cleans up older than one hour", async () => {
   expect(await screen.findByText("old.bin")).toBeTruthy();
   expect(screen.getByText("up-old")).toBeTruthy();
   expect(screen.getByText("2000-01-01T00:00:00Z")).toBeTruthy();
-  const hours = screen.getByLabelText("Older than hours") as HTMLInputElement;
+  const hours = screen.getByLabelText("Older than (hours)") as HTMLInputElement;
   expect(hours.value).toBe("");
   const cleanUp = screen.getByRole("button", { name: "Clean up" }) as HTMLButtonElement;
   expect(cleanUp.disabled).toBe(true);

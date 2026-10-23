@@ -89,9 +89,9 @@ test("shows health status when the session is authenticated", async () => {
     }),
   );
   renderApp();
-  fireEvent.click(await screen.findByRole("button", { name: / · (admin|viewer)$/ }));
-  expect(await screen.findByText("ok · test")).toBeTruthy();
-  expect(screen.getAllByRole("button", { name: "Ada · admin" })).toHaveLength(1);
+  fireEvent.click(await screen.findByRole("button", { name: /, (admin|viewer)$/ }));
+  expect(await screen.findByText("ok, test")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Ada, admin" })).toHaveLength(1);
   expect(screen.queryByRole("heading", { name: "About" })).toBeNull();
   expect(screen.getAllByText("Garage version is not set")).toHaveLength(1);
   await chooseSection("Settings");
@@ -351,7 +351,7 @@ test("shows Logging out on the disabled logout button until logout fails", async
     }),
   );
   renderApp();
-  fireEvent.click(await screen.findByRole("button", { name: "Bea · viewer" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Bea, viewer" }));
   const idle = (await screen.findByRole("button", { name: "Log out" })) as HTMLButtonElement;
   expect(idle.disabled).toBe(false);
   expect(idle.textContent).toBe("Log out");
@@ -361,7 +361,7 @@ test("shows Logging out on the disabled logout button until logout fails", async
   })) as HTMLButtonElement;
   expect(pending.disabled).toBe(true);
   expect(pending.textContent).toBe("Logging out");
-  expect(screen.getByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   const finish = releaseLogout;
   if (!finish) {
     throw new Error("logout did not start");
@@ -371,7 +371,7 @@ test("shows Logging out on the disabled logout button until logout fails", async
   expect(again.disabled).toBe(false);
   expect(again.textContent).toBe("Log out");
   expect(screen.queryByRole("button", { name: "Logging out" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Bea, viewer" })).toBeTruthy();
 });
 
 test("logout removes protected cached data before the next account can sign in", async () => {
@@ -399,7 +399,7 @@ test("logout removes protected cached data before the next account can sign in",
   const client = renderApp();
   client.setQueryData(["buckets"], { items: [{ id: "admin-private" }], hasMore: false });
   client.getMutationCache().build(client, { mutationKey: ["secret"], mutationFn: async () => "secret" });
-  fireEvent.click(await screen.findByRole("button", { name: "Ada · admin" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Ada, admin" }));
   fireEvent.click(screen.getByRole("button", { name: "Log out" }));
   await screen.findByRole("button", { name: "Log in" });
   expect(client.getQueryData(["buckets"])).toBeUndefined();
@@ -444,7 +444,7 @@ test("a delayed successful request from an expired session cannot repopulate a n
   fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "Bea" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-password" } });
   fireEvent.click(screen.getByRole("button", { name: "Log in" }));
-  await screen.findByRole("button", { name: "Bea · admin" });
+  await screen.findByRole("button", { name: "Bea, admin" });
   await act(async () => {
     releaseOld(new Response(JSON.stringify({ id: "admin-private" })));
     await old;
@@ -711,9 +711,9 @@ test("shows a blocking notice when Garage is older than v2.3.0", async () => {
   renderApp();
   const notice = await screen.findByRole("alert");
   expect(notice.textContent).toBe("Garage v2.3.0 or newer is required");
-  expect(screen.getByRole("button", { name: "Ada · admin" })).toBeTruthy();
-  fireEvent.click(await screen.findByRole("button", { name: / · (admin|viewer)$/ }));
-  expect(await screen.findByText("ok · test")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ada, admin" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: /, (admin|viewer)$/ }));
+  expect(await screen.findByText("ok, test")).toBeTruthy();
   expect(screen.queryAllByRole("alert")).toHaveLength(1);
   await chooseSection("Keys");
   expect(await screen.findByText("Keys are unavailable")).toBeTruthy();
@@ -753,7 +753,7 @@ test("shows a TLS warning while verification is off", async () => {
       }),
     );
     renderApp();
-    expect(await screen.findByRole("button", { name: "Ada · admin" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Ada, admin" })).toBeTruthy();
   }
 
   await signIn(true);
@@ -819,8 +819,8 @@ test("shows user management for an admin and locks that signed-in row", async ()
     }),
   );
   renderApp();
-  fireEvent.click(await screen.findByRole("button", { name: / · (admin|viewer)$/ }));
-  expect(await screen.findByText("ok · test")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: /, (admin|viewer)$/ }));
+  expect(await screen.findByText("ok, test")).toBeTruthy();
   await chooseSection("Settings");
   expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
   expect(await screen.findByText("Version 20261010.1")).toBeTruthy();
@@ -865,9 +865,9 @@ test("hides user management from a viewer", async () => {
   });
   vi.stubGlobal("fetch", fetchMock);
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
-  fireEvent.click(await screen.findByRole("button", { name: / · (admin|viewer)$/ }));
-  expect(await screen.findByText("ok · test")).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: /, (admin|viewer)$/ }));
+  expect(await screen.findByText("ok, test")).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "About" })).toBeNull();
   expect(screen.getAllByText("Garage v2.4.1")).toHaveLength(1);
   expect(screen.queryByRole("heading", { name: "Users" })).toBeNull();
@@ -1009,7 +1009,7 @@ test("shows a bucket id to a viewer", async () => {
   });
   vi.stubGlobal("fetch", fetchMock);
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Users" })).toBeNull();
   expect(sectionsNav().queryByRole("link", { name: "Users" })).toBeNull();
   await chooseSection("Buckets");
@@ -1143,8 +1143,8 @@ test("loading #keys shows keys", async () => {
   expect(await screen.findByText("key-ada")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Keys" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Buckets" })).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Bea · viewer" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Bea · viewer" }));
+  expect(screen.getAllByRole("button", { name: "Bea, viewer" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Bea, viewer" }));
   expect(screen.getAllByText("Garage v2.4.1")).toHaveLength(1);
 });
 
@@ -1157,7 +1157,7 @@ test("an admin sees Users and a viewer opening #users sees overview", async () =
   window.location.hash = "#users";
   stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
   expect(sectionsNav().queryByRole("link", { name: "Users" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Users" })).toBeNull();
@@ -1167,7 +1167,7 @@ test("a non-admin #users/x stays on overview and keeps the hash", async () => {
   window.location.hash = "#users/x";
   stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Change password" })).toBeNull();
   expect(sectionsNav().queryByRole("link", { name: "Users" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Users" })).toBeNull();
@@ -1179,7 +1179,7 @@ test("an unknown hash shows overview", async () => {
   window.location.hash = "#layout";
   stubSignedIn("admin");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Ada · admin" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Ada, admin" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Buckets" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Keys" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Users" })).toBeNull();
@@ -1263,7 +1263,7 @@ test("a signed-in page shows one breadcrumb built from the section labels", asyn
   expect(
     within(overview).getByText("Overview", { selector: "[aria-current='page']" }),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Ada · admin" }));
+  fireEvent.click(screen.getByRole("button", { name: "Ada, admin" }));
   const version = screen.getAllByText("Garage v2.4.1")[0];
   expect(overview.closest("header")).toBeTruthy();
   expect(version.closest(".console-health")).toBeTruthy();
@@ -1318,7 +1318,7 @@ test("a signed-in page shows one breadcrumb built from the section labels", asyn
   window.location.hash = "#users";
   stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   const viewer = screen.getByRole("navigation", { name: "Breadcrumb" });
   expect(within(viewer).queryByRole("link")).toBeNull();
   expect(within(viewer).getByText("Overview", { selector: "[aria-current='page']" })).toBeTruthy();
@@ -1788,7 +1788,7 @@ test("keeps the change-password form when the current password is rejected", asy
 test("viewer overview has guarded Buckets and Keys entry points in the main work area", async () => {
   stubSignedIn("viewer");
   renderApp();
-  await screen.findByRole("button", { name: "Bea · viewer" });
+  await screen.findByRole("button", { name: "Bea, viewer" });
   const main = within(screen.getByRole("main"));
   expect(main.getByRole("heading", { name: "Overview" })).toBeTruthy();
   const buckets = main.getByRole("link", { name: "Buckets" });

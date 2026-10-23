@@ -119,7 +119,7 @@ test("a bucket, a key, and a node each open on the detail tab in the address", a
   cleanup();
   window.location.hash = "#buckets/bkt-1/photos/2024/";
   renderApp();
-  expect(await screen.findByRole("button", { name: "Ada · admin" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Ada, admin" })).toBeTruthy();
   expect(window.location.hash).toBe("#buckets/bkt-1/photos/2024/");
   expect(crumb().getByText("Objects", { selector: "[aria-current='page']" }).textContent).toBe(
     "Objects",

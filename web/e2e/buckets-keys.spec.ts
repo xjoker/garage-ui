@@ -310,7 +310,7 @@ async function createKey(page: Page, name: string): Promise<string> {
   await expect(field).toHaveAttribute("type", "password");
   const secret = await field.inputValue();
   expect(secret.length).toBeGreaterThan(8);
-  await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expectSecretAbsent(page, secret);
   await expect(page.getByRole("region", { name: "Keys" }).getByText(name, { exact: true })).toBeVisible({
@@ -350,7 +350,7 @@ async function viewSecretThenClose(page: Page, keyId: string): Promise<void> {
     secret,
   );
   expect(shown).toBe(true);
-  await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expectSecretAbsent(page, secret);
 }
@@ -418,7 +418,7 @@ async function cleanup(page: Page, aliases: string[], keyId: string): Promise<vo
   await page.unrouteAll({ behavior: "ignoreErrors" });
   const dialog = page.getByRole("dialog");
   if (await dialog.isVisible()) {
-    await dialog.getByRole("button", { name: /^(Close|Cancel|I have saved it)$/ }).click();
+    await dialog.getByRole("button", { name: /^(Close|Cancel|Done)$/ }).click();
     await expect(dialog).toHaveCount(0);
   }
   await page.keyboard.press("Escape");

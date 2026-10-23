@@ -7,7 +7,7 @@ import { SecretDialog } from "./SecretDialog";
 import { ReadableInstantText, copy, fill, translate } from "./i18n";
 import { isGarageDown } from "./garageDown";
 
-import { DataCell, SettingsSection } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, SettingsSection } from "./ui";
 
 type AdminToken = {
   id: string | null;
@@ -531,13 +531,13 @@ function CreateTokenForm({ open, onOpenChange }: { open: boolean; onOpenChange: 
         />
         </SettingsSection>
         {error ? <p className="ui-alert">{error}</p> : null}
-        <div className="ui-actions">
+        <div className="ui-dialog-actions">
+        <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => { setDraft(EMPTY_DRAFT); create.reset(); onOpenChange(false); }}>{copy("ui.cancel")}</Button>
         <Button size="2" variant="solid" color="orange"
           type="submit"
           disabled={create.isPending}
         >
           {copy("ui.create.token")}</Button>
-        <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => { setDraft(EMPTY_DRAFT); create.reset(); onOpenChange(false); }}>{copy("ui.cancel")}</Button>
         </div>
       </form>
       </Dialog.Content></Dialog.Root>
@@ -664,13 +664,13 @@ function EditTokenForm({
         />
         </SettingsSection>
         {error ? <p className="ui-alert">{error}</p> : null}
-        <div className="ui-actions">
+        <div className="ui-dialog-actions">
+        <Button size="2" variant="soft" color="gray" type="button" disabled={update.isPending} onClick={onClose}>{copy("ui.cancel")}</Button>
         <Button size="2" variant="solid" color="orange"
           type="submit"
           disabled={update.isPending}
         >
           {copy("ui.update.token")}</Button>
-        <Button size="2" variant="soft" color="gray" type="button" disabled={update.isPending} onClick={onClose}>{copy("ui.cancel")}</Button>
         </div>
       </form>
       </Dialog.Content></Dialog.Root>
@@ -868,9 +868,9 @@ export function AdminTokens() {
       aria-label={copy("nav.tokens")}
       aria-busy={list.isPending || current.isPending}
     >
-      <div className="ui-page-header"><h2>{copy("nav.tokens")}</h2>
+      <PageHeader title={copy("nav.tokens")}>
         <CreateTokenForm open={creating} onOpenChange={setCreating} />
-      </div>
+      </PageHeader>
       <div className="ui-toolbar">
         <label className="ui-field">
           {copy("ui.filter.admin.tokens")}<TextField.Root size="2"
@@ -900,7 +900,7 @@ export function AdminTokens() {
 
       </div>
       {list.isPending ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.admin.tokens")}>{copy("ui.loading.admin.tokens")}</div>
+        <LoadingState label={copy("ui.loading.admin.tokens")} />
       ) : null}
       {listFailure ? (
         <>
@@ -928,7 +928,7 @@ export function AdminTokens() {
             {copy("ui.retry")}</Button>
         </>
       ) : null}
-      {list.isSuccess && shown.length === 0 ? <p>{list.data.items.length === 0 && offset === 0 && !list.data.hasMore ? copy("ui.no.admin.tokens") : translate("No matches on this page.")}</p> : null}
+      {list.isSuccess && shown.length === 0 ? <EmptyState title={list.data.items.length === 0 && offset === 0 && !list.data.hasMore ? copy("ui.no.admin.tokens") : translate("No matches on this page.")} /> : null}
       {list.isSuccess && shown.length > 0 ? <TokenTable rows={shown} /> : null}
         <div className="ui-actions">
           <Button size="2" variant="soft" color="gray"
@@ -940,7 +940,7 @@ export function AdminTokens() {
               writeTokenOffset(next);
             }}
           >
-            {copy("ui.previous")}</Button>
+            {copy("common.previousPage")}</Button>
           <Button size="2" variant="soft" color="gray"
             type="button"
             disabled={list.data?.hasMore !== true}
@@ -950,7 +950,7 @@ export function AdminTokens() {
               writeTokenOffset(next);
             }}
           >
-            {copy("ui.next")}</Button>
+            {copy("common.nextPage")}</Button>
         </div>
       {current.data ? <CurrentToken token={current.data} /> : null}
     </section>

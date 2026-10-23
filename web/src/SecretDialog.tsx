@@ -2,6 +2,7 @@ import { Button, Dialog, TextField } from "@radix-ui/themes";
 import { useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "./clipboard";
 import { copy } from "./i18n";
+import { Icon } from "./Icon";
 
 function copySelectedSecret(field: HTMLInputElement | null): boolean {
   if (!field) return false;
@@ -41,26 +42,26 @@ export function SecretDialog({ secret, title, label, description, onClose, retur
   }, [selectForManualCopy]);
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <Dialog.Content maxWidth="480px" onCloseAutoFocus={(event) => { event.preventDefault(); if (returnFocus?.isConnected) returnFocus.focus(); }} onOpenAutoFocus={(event) => { event.preventDefault(); copyRef.current?.focus(); }}>
+      <Dialog.Content className="ui-secret-dialog" maxWidth="520px" onCloseAutoFocus={(event) => { event.preventDefault(); if (returnFocus?.isConnected) returnFocus.focus(); }} onOpenAutoFocus={(event) => { event.preventDefault(); copyRef.current?.focus(); }}>
         <Dialog.Title>{title}</Dialog.Title>
         <Dialog.Description>{description}</Dialog.Description>
         <label className="ui-field">
           <span>{label}</span>
-          <TextField.Root size="2" readOnly autoComplete="off" type={visible ? "text" : "password"} value={secret} ref={secretRef} />
+          <TextField.Root className="ui-secret-value" size="3" readOnly autoComplete="off" type={visible ? "text" : "password"} value={secret} ref={secretRef} />
         </label>
         <div className="ui-actions">
-          <Button size="2" variant="soft" color="gray" type="button" onClick={() => setVisible(true)}>{copy("ui.show.secret")}</Button>
-          <Button size="2" variant="soft" color="gray" type="button" ref={copyRef} onClick={() => {
+          <Button size="2" variant="soft" color="gray" type="button" onClick={() => setVisible((value) => !value)}><Icon name="eye" />{visible ? copy("design.hideSecret") : copy("ui.show.secret")}</Button>
+          <Button size="2" type="button" ref={copyRef} onClick={() => {
             void copyText(secret, () => copySelectedSecret(secretRef.current)).then((result) => {
               if (result === "copied") { setFeedback(copy("ui.copied")); copyRef.current?.focus(); return; }
               setVisible(true);
               setSelectForManualCopy(true);
               setFeedback(copy("ui.select.the.secret.and.copy.it"));
             });
-          }}>{copy("ui.copy.secret")}</Button>
-          <Button size="2" variant="soft" color="gray" type="button" onClick={onClose}>{copy("ui.i.have.saved.it")}</Button>
+          }}><Icon name={feedback === copy("ui.copied") ? "check" : "copy"} />{copy("ui.copy.secret")}</Button>
         </div>
         {feedback ? <p role="status">{feedback}</p> : null}
+        <div className="ui-dialog-actions"><Button size="2" variant="soft" color="gray" type="button" onClick={onClose}>{copy("ui.i.have.saved.it")}</Button></div>
       </Dialog.Content>
     </Dialog.Root>
   );

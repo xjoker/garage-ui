@@ -121,7 +121,7 @@ for (const width of [1280, 360]) {
       await expect(secret).toHaveAttribute("type", "text");
       await dialog.getByRole("button", { name: "Copy secret", exact: true }).click();
       await expect(dialog.getByText(/Copied|Select the secret and copy it/)).toBeVisible();
-      await dialog.getByRole("button", { name: "I have saved it", exact: true }).click();
+      await dialog.getByRole("button", { name: "Done", exact: true }).click();
       await expect(secret).toHaveCount(0);
       await page.getByLabel("Filter keys").fill(name);
       await selectChoice(page.getByLabel("Sort keys"), "Name");
@@ -260,7 +260,7 @@ for (const width of [1280, 360]) {
       const confirm = page.getByRole("dialog");
       if (await confirm.getByRole("button", { name: "Confirm", exact: true }).isVisible()) await confirm.getByRole("button", { name: "Confirm", exact: true }).click();
       await expect(page.getByLabel("Secret access key")).toBeVisible();
-      await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+      await page.getByRole("button", { name: "Done", exact: true }).click();
       await page.getByRole("button", { name: `Delete key (${fixture.keyId})`, exact: true }).click();
       await shot(page, "key-delete-confirm", "Renamed key, enabled bucket creation, viewed synthetic secret, opened delete confirmation");
       await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
@@ -305,9 +305,9 @@ for (const width of [1280, 360]) {
       await page.getByRole("button", { name: "Incomplete uploads", exact: true }).click();
       const multipartResponse = await multipart;
       expect(multipartResponse.ok(), `Multipart response ${multipartResponse.status()}`).toBe(true);
-      await expect(page.getByLabel("Older than hours")).toBeVisible({ timeout: 15000 });
-      await page.getByLabel("Older than hours").fill("-1"); await expect(page.getByRole("button", { name: "Clean up", exact: true })).toBeDisabled();
-      await page.getByLabel("Older than hours").fill("24");
+      await expect(page.getByLabel("Older than (hours)")).toBeVisible({ timeout: 15000 });
+      await page.getByLabel("Older than (hours)").fill("-1"); await expect(page.getByRole("button", { name: "Clean up", exact: true })).toBeDisabled();
+      await page.getByLabel("Older than (hours)").fill("24");
       await shot(page, "bucket-cleanup", "Opened empty owned multipart list; invalid hours disabled cleanup; entered 24 hours");
       await page.getByRole("button", { name: "Clean up", exact: true }).click();
       await expect(page.getByText(/Cleaned up 0/)).toBeVisible();

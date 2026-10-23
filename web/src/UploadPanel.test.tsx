@@ -676,7 +676,7 @@ test("successful upload refreshes rendered search results while collapsed jobs r
   if (!summary) throw new Error("missing upload summary");
   fireEvent.click(summary);
   expect(disclosure.open).toBe(false);
-  expect(summary.textContent).toContain("Uploading · 1");
+  expect(summary.textContent).toContain("Uploading (1)");
   expect(FakeRequest.sent[0]?.aborted).toBe(false);
   await act(async () => { FakeRequest.sent[0]?.succeed(); });
   expect(await screen.findByRole("button", { name: "new.txt" })).toBeTruthy();
@@ -777,7 +777,7 @@ test("staying during breadcrumb navigation retains search and selection during a
   expect((screen.getByLabelText("Search") as HTMLInputElement).value).toBe("search");
   expect(screen.getByRole("checkbox", { name: "Select search.txt" }).getAttribute("aria-checked")).toBe("true");
   expect(window.location.search).toContain("objects=search");
-  expect(screen.getByText("Queued · 1")).toBeTruthy();
+  expect(screen.getByText("Queued (1)")).toBeTruthy();
   await act(async () => { deliver?.([]); });
 });
 

@@ -68,7 +68,7 @@ for (const [width, theme] of [[360, "Light"], [390, "Dark"]] as const) {
       for (const row of metrics.rows) if (!row.long) expect(row.height, `${row.name} record height`).toBeLessThanOrEqual(row.folder ? 80 : 100);
       expect(metrics.scrollWidth).toBeLessThanOrEqual(width);
       await phoneShell(page);
-      const uploadButton = objects.getByRole("button", { name: /^Upload(?: · \d+)?$/ });
+      const uploadButton = objects.getByRole("button", { name: /^Upload(?: \(\d+\))?$/ });
       await expect(uploadButton).toHaveCount(1);
       await touchTarget(uploadButton, width);
       await expect(objects.getByLabel("Choose files")).not.toBeVisible();

@@ -37,5 +37,5 @@ test("loads a section module only after an authenticated user opens that section
   expect(await screen.findByRole("heading", { name: "Deferred workers page" })).toBeTruthy();
   expect(loadWorkers).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("navigation", { name: "Sections" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Ada · admin" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ada, admin" })).toBeTruthy();
 });

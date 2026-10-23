@@ -84,7 +84,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           <TextField.Root size="2" value={typed} autoComplete="off" spellCheck={false}
             onChange={(event) => setTyped(event.target.value)} />
         </label> : null}
-        <Flex gap="3" mt="5" justify="end" wrap="wrap">
+        <Flex className="ui-dialog-actions" gap="3" mt="5" justify="end" wrap="wrap">
           <Button ref={cancelRef} size="2" color="gray" variant="soft" type="button" aria-disabled={pending}
             onClick={() => { if (!pending) onCancel(); }}>{copy("ui.cancel")}</Button>
           <Button size="2" color="red" type="button" disabled={!canConfirm || pending}

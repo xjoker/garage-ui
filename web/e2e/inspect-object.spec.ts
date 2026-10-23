@@ -74,7 +74,7 @@ async function createKey(page: Page, name: string): Promise<string> {
   const heading = page.getByRole("heading", { name: /^Secret for / });
   await expect(heading).toBeVisible({ timeout: 20_000 });
   const keyId = (await heading.innerText()).replace(/^Secret for /, "");
-  await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   return keyId;
 }

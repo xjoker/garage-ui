@@ -2,6 +2,27 @@ import { Button, Table } from "@radix-ui/themes";
 import { useId, useRef, useState, type ReactNode, type TdHTMLAttributes } from "react";
 import { copyText } from "./clipboard";
 import { fill, useI18n } from "./i18n";
+import { Icon } from "./Icon";
+
+export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  return <header className="ui-page-header">
+    <div className="ui-page-intro"><h2>{title}</h2></div>
+    {children ? <div className="ui-page-actions">{children}</div> : null}
+  </header>;
+}
+
+export function EmptyState({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  return <div className="ui-empty-state">
+    <p className="ui-empty-title">{title}</p>
+    {children ? <div className="ui-actions">{children}</div> : null}
+  </div>;
+}
+
+export function LoadingState({ label }: { label: string }) {
+  return <div className="ui-loading-state" role="status" aria-label={label} aria-busy="true">
+    <span className="ui-loading-indicator" aria-hidden="true" />{label}
+  </div>;
+}
 
 export function Pagination({ page, hasPrevious, hasNext, pending = false, onPrevious, onNext }: {
   page: number;
@@ -48,7 +69,7 @@ export function ResourceIdentity({ id, name, compact = false }: { id: string; na
         if (details) details.open = wasOpen;
       }
     }).then((copyResult) => setResult(copyResult === "copied" ? "copied" : "failed"));
-  }}>{t("common.copyId")}</Button>;
+  }}><Icon name={result === "copied" ? "check" : "copy"} />{t("common.copyId")}</Button>;
   return <div className={`ui-resource-identity${compact ? " ui-resource-identity-compact" : ""}`}>
     {name ? <span className="ui-resource-name">{name}</span> : null}
     <div className="ui-actions">

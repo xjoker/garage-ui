@@ -174,7 +174,7 @@ async function createKey(page: Page, name: string): Promise<string> {
   const heading = page.getByRole("heading", { name: /^Secret for / });
   await expect(heading).toBeVisible({ timeout: 20_000 });
   const keyId = (await heading.innerText()).replace(/^Secret for /, "");
-  await page.getByRole("button", { name: "I have saved it", exact: true }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   return keyId;
 }
@@ -275,7 +275,7 @@ async function release(page: Page, alias: string, bucketId: string, keyId: strin
     await submitLogin(page);
   }
   await assertAuthenticated(page);
-  await expect(account, "fixture cleanup requires an authenticated administrator").toHaveAccessibleName(`${administrator.username} · admin`);
+  await expect(account, "fixture cleanup requires an authenticated administrator").toHaveAccessibleName(`${administrator.username}, admin`);
   const headers = await csrfHeader(page);
   if (bucketId.length > 0) {
     for (const prefix of ["pix/", "bad/"]) {

@@ -58,9 +58,9 @@
 }
 
 @media (max-width: 639px) {
-  .radix-themes :is(.rt-Button, .rt-IconButton, .rt-SelectTrigger, .rt-TextFieldRoot, .rt-TextAreaRoot, .rt-TabsTrigger) { min-height: 36px; }
+  .radix-themes :is(.rt-Button, .rt-IconButton, .rt-SelectTrigger, .rt-TextFieldRoot, .rt-TextAreaRoot, .rt-TabsTrigger) { min-height: 44px; }
   .radix-themes :is(.rt-TextFieldInput, .rt-TextAreaInput) { font-size: 16px; }
-  .radix-themes :is(.rt-SelectItem, .rt-DropdownMenuItem) { min-height: 36px; }
+  .radix-themes :is(.rt-SelectItem, .rt-DropdownMenuItem) { min-height: 44px; }
   .ui-table-records.rt-TableRoot .rt-ScrollAreaViewport > div { display: block !important; }
   .ui-table-records .rt-TableRootTable { display: block; height: auto; }
 }

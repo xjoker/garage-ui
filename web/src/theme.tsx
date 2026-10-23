@@ -2,6 +2,7 @@ import { Button, Theme } from "@radix-ui/themes";
 import { useEffect, useState, type ReactNode } from "react";
 import type { CopyKey } from "./copy-en";
 import { useI18n } from "./i18n";
+import { Icon } from "./Icon";
 
 const themeStorageKey = "garage-ui-theme";
 const colorSchemeQuery = "(prefers-color-scheme: dark)";
@@ -78,18 +79,18 @@ export function useThemeSync() {
 
 export function GarageTheme({ children }: { children: ReactNode }) {
   const resolved = useThemeSync();
-  return <Theme appearance={resolved} accentColor="orange" grayColor="gray" radius="medium">{children}</Theme>;
+  return <Theme appearance={resolved} accentColor="orange" grayColor="slate" radius="medium" panelBackground="solid">{children}</Theme>;
 }
 
 export function ThemeChooser() {
   const { choice } = useThemeState();
   const { t } = useI18n();
   return (
-    <div className="ui-actions" role="group" aria-label={t("theme.group")}>
+    <div className="ui-actions ui-theme-chooser" role="group" aria-label={t("theme.group")}>
       {themeOptions.map(([option, label]) => (
         <Button key={option} size="2" color={choice === option ? "orange" : "gray"}
           variant={choice === option ? "solid" : "soft"} type="button" aria-pressed={choice === option}
-          onClick={() => writeThemeChoice(localStorage, option)}>{t(label)}</Button>
+          onClick={() => writeThemeChoice(localStorage, option)}><Icon name={option === "light" ? "sun" : option === "dark" ? "moon" : "system"} />{t(label)}</Button>
       ))}
     </div>
   );

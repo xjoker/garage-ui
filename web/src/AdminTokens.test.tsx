@@ -226,7 +226,7 @@ test("an admin creates a token, sees a full-admin scope warning, and the secret 
   fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
   const field = (await screen.findByLabelText("Secret")) as HTMLInputElement;
   expect(field.type).toBe("password");
-  expect(screen.getByText("This secret is shown once. Closing this dialog removes it from the page.")).toBeTruthy();
+  expect(screen.getByText("Save this secret before closing. It cannot be viewed again.")).toBeTruthy();
   expect(document.body.textContent ?? "").not.toContain(CREATED_SECRET);
   const posted = calls.find((call) => call.method === "POST");
   expect(posted).toEqual({
@@ -240,7 +240,7 @@ test("an admin creates a token, sees a full-admin scope warning, and the secret 
   expect(field.value).toBe(CREATED_SECRET);
   fireEvent.click(screen.getByRole("button", { name: "Copy secret" }));
   expect(await screen.findByText("Copied")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "I have saved it" }));
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   expect(document.body.textContent ?? "").not.toContain(CREATED_SECRET);
@@ -526,8 +526,8 @@ test("turns admin token pages by 100 and keeps the filter, sort, and hash", asyn
   expect(await screen.findByRole("row", { name: /config-reader/ })).toBeTruthy();
   expect(calls[0]).toBe("/api/admin-tokens?offset=0&limit=100");
   expect(window.location.search).not.toContain("tokensOffset");
-  const previous = screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement;
-  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+  const previous = screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement;
+  const next = screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement;
   expect(previous.disabled).toBe(true);
   expect(next.disabled).toBe(false);
 
@@ -540,7 +540,7 @@ test("turns admin token pages by 100 and keeps the filter, sort, and hash", asyn
   expect(window.location.search).toContain("tokens=reader");
   expect(window.location.search).toContain("tokensSort=created");
   expect(window.location.hash).toBe("#tokens/stay");
-  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
   expect(await screen.findByRole("row", { name: /config-reader/ })).toBeTruthy();
   expect(window.location.search).not.toContain("tokensOffset");
   expect(window.location.hash).toBe("#tokens/stay");
@@ -783,7 +783,7 @@ test("scope_groups_cover_every_v24_admin_endpoint", async () => {
     name: "reader",
     scope: ["*"],
   });
-  fireEvent.click(await screen.findByRole("button", { name: "I have saved it" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Done" }));
   expect(screen.queryByText("This scope is equivalent to full admin access.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Create token" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "CreateAdminToken" }));
@@ -939,7 +939,7 @@ test("discloses page-local token filtering without claiming the repository is em
   fireEvent.change(screen.getByLabelText("Filter admin tokens"), { target: { value: "missing" } });
   expect(screen.getByText("No matches on this page.")).toBeTruthy();
   expect(screen.queryByText("No admin tokens")).toBeNull();
-  expect(screen.getByRole("button", { name: "Previous" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeTruthy();
 });
 
 test("opens token creation on demand and preserves the scope draft across Escape", async () => {
@@ -966,7 +966,7 @@ test("an empty later token page does not claim the repository is empty", async (
   renderTokens(false);
   expect(await screen.findByText("No matches on this page.")).toBeTruthy();
   expect(screen.queryByText("No admin tokens")).toBeNull();
-  expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 
@@ -1047,7 +1047,7 @@ test("created token secret is never retained in the mutation cache", async () =>
   fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
   expect((await screen.findByLabelText("Secret") as HTMLInputElement).value).toBe(CREATED_SECRET);
   expect(JSON.stringify(client.getMutationCache().getAll().map((mutation) => mutation.state.data))).not.toContain(CREATED_SECRET);
-  fireEvent.click(screen.getByRole("button", { name: "I have saved it" }));
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByLabelText("Secret")).toBeNull();
   expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(CREATED_SECRET);
 });

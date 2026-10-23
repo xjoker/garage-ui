@@ -2,6 +2,7 @@ import { Button, Dialog } from "@radix-ui/themes";
 import { useEffect, useState, type RefObject } from "react";
 import type { CopyKey } from "./copy-en";
 import { useI18n } from "./i18n";
+import { Icon } from "./Icon";
 
 const sections = [
   { id: "overview", adminOnly: false },
@@ -279,7 +280,7 @@ export function Nav({ role, section, open, onToggle, onClose, menuTrigger, onSel
     { ids: ["settings"] },
   ];
   const links = <nav className="console-nav" aria-label={t("nav.sections")}>
-    <div className="console-wordmark"><img src="./brand/garage-ui.svg" width="32" height="32" alt="" />Garage UI</div>
+    <div className="console-wordmark"><img src="./brand/garage-ui.svg" width="32" height="32" alt="" /><div>Garage UI</div></div>
     {groups.map((group, index) => {
       const visible = group.ids.filter((id) => !sections.find((item) => item.id === id)?.adminOnly || role === "admin");
       if (!visible.length) return null;
@@ -289,7 +290,7 @@ export function Nav({ role, section, open, onToggle, onClose, menuTrigger, onSel
           className="console-nav-link" onClick={(event) => {
             event.preventDefault();
             if (onSelect(id) && mobile && open) onToggle();
-          }}>{t(sectionCopy[id])}</a>)}
+          }}><Icon name={id} /><span>{t(sectionCopy[id])}</span></a>)}
       </div>;
     })}
   </nav>;

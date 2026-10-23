@@ -424,7 +424,7 @@ test("shows a created secret once, copies it, and removes it when the dialog clo
   fireEvent.click(screen.getByRole("button", { name: "Copy secret" }));
   expect(await screen.findByText("Copied")).toBeTruthy();
   expect(writeText).toHaveBeenCalledWith("ONCESECRET");
-  fireEvent.click(screen.getByRole("button", { name: "I have saved it" }));
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(pageHolds("ONCESECRET")).toBe(false);
   expect(pageHolds("LISTSECRET")).toBe(false);
@@ -472,6 +472,17 @@ test("copies a secret through execCommand when the page is not a secure context"
   expect(field.type).toBe("password");
   expect(field.value).toBe("ONCESECRET");
   expect(writeText).not.toHaveBeenCalled();
+});
+
+test("a revealed secret can be masked again without closing the dialog", () => {
+  render(<Theme><SecretDialog secret="ONCESECRET" title="Secret" label="Secret access key" description="Save this secret" onClose={() => {}} returnFocus={null} /></Theme>);
+  const field = screen.getByLabelText("Secret access key") as HTMLInputElement;
+  expect(field.type).toBe("password");
+  fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
+  expect(field.type).toBe("text");
+  fireEvent.click(screen.getByRole("button", { name: "Hide secret" }));
+  expect(field.type).toBe("password");
+  expect(field.value).toBe("ONCESECRET");
 });
 
 test("reveals and selects a secret without claiming success when the HTTP copy fallback fails", async () => {
@@ -713,7 +724,7 @@ test("cancels a key delete without a request, then confirms the encoded delete",
   });
 });
 
-test("shows Working while a key delete is submitting and Cancel and Escape wait for completion", async () => {
+test("shows In progress while a key delete is submitting and Cancel and Escape wait for completion", async () => {
   let release: (response: Response) => void = () => {};
   vi.stubGlobal(
     "fetch",
@@ -737,9 +748,9 @@ test("shows Working while a key delete is submitting and Cancel and Escape wait 
   expect(confirm.disabled).toBe(false);
   expect(confirm.textContent).toBe("Confirm");
   fireEvent.click(confirm);
-  const working = (await within(dialog).findByRole("button", { name: "Working" })) as HTMLButtonElement;
+  const working = (await within(dialog).findByRole("button", { name: "In progress" })) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
-  expect(working.textContent).toBe("Working");
+  expect(working.textContent).toBe("In progress");
   expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
   const during = screen.getByRole("button", { name: "Delete GK1", hidden: true }) as HTMLButtonElement;
   expect(during.disabled).toBe(false);
@@ -823,7 +834,7 @@ test("views a secret with confirmation and removes it when the dialog closes", a
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Confirm" }));
   const field = (await screen.findByLabelText("Secret access key")) as HTMLInputElement;
   expect(field.value).toBe("VIEWSECRET");
-  expect(screen.getByText("Closing this dialog removes the secret from the page. You can view it again.")).toBeTruthy();
+  expect(screen.getByText("You can view this secret again.")).toBeTruthy();
   expect(screen.queryByText("NOTINLIST")).toBeNull();
   expect(pageHolds("LISTSECRET")).toBe(false);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -930,7 +941,7 @@ test("filters loaded keys from the query string and keeps that choice in the add
   expect(screen.queryByText("k-b")).toBeNull();
   expect(screen.queryByText("k-c")).toBeNull();
   expect((screen.getByLabelText("Filter keys") as HTMLInputElement).value).toBe("APPLE");
-  expect(screen.getByText("Default order is Id.").textContent).toBe("Default order is Id.");
+  expect(screen.getByText("Default sort: ID").textContent).toBe("Default sort: ID");
   expect(screen.getByText("Only loaded rows").textContent).toBe("Only loaded rows");
   expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   expect(screen.queryByText("There are no keys.")).toBeNull();

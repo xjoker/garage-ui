@@ -945,7 +945,7 @@ test("a pending repair cannot be dismissed or submitted twice", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   fireEvent.keyDown(confirmation, { key: "Escape" });
   expect(screen.getByRole("dialog", { name: "Confirm n1" })).toBe(confirmation);
-  const pending = within(confirmation).getByRole("button", { name: "Working" }) as HTMLButtonElement;
+  const pending = within(confirmation).getByRole("button", { name: "In progress" }) as HTMLButtonElement;
   expect(pending.disabled).toBe(true);
   fireEvent.click(pending);
   expect(repairs).toHaveLength(1);

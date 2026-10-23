@@ -8,8 +8,8 @@ import { SecretDialog } from "./SecretDialog";
 import { DetailTabs } from "./DetailTabs";
 import { detailAddressFromHash, hashForDetail, keyTabs, useLocationHash } from "./Nav";
 import { releaseHash, savePhase, saveStatus, setFormDirty } from "./unsaved";
-import { copy, fill, translate } from "./i18n";
-import { DataCell, ResourceIdentity, SettingsSection } from "./ui";
+import { copy, fill, ReadableInstantText, translate } from "./i18n";
+import { DataCell, EmptyState, LoadingState, PageHeader, ResourceIdentity, SettingsSection } from "./ui";
 
 type AccessKey = {
   id: string;
@@ -359,13 +359,15 @@ function CreateKeyForm({ open, onOpenChange, onSecret }: { open: boolean; onOpen
       </label>
       {error ? <p className="ui-alert">{error}</p> : null}
       {note ? <p>{note}</p> : null}
-      <Button size="2" variant="solid" color="orange"
-        type="submit"
-        disabled={create.isPending}
-      >
-        {create.isPending ? copy("ui.creating.key") : copy("ui.create.key")}
-      </Button>
-      <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => { setName(""); create.reset(); onOpenChange(false); }}>{copy("ui.cancel")}</Button>
+      <div className="ui-dialog-actions">
+        <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => { setName(""); create.reset(); onOpenChange(false); }}>{copy("ui.cancel")}</Button>
+        <Button size="2" variant="solid" color="orange"
+          type="submit"
+          disabled={create.isPending}
+        >
+          {create.isPending ? copy("ui.creating.key") : copy("ui.create.key")}
+        </Button>
+      </div>
     </form>
     </Dialog.Content></Dialog.Root>
   );
@@ -641,10 +643,9 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
 
   return (
     <section className="ui-page" aria-label={copy("nav.keys")} aria-busy={view.busy}>
-      {keyDetail === null ? <header className="ui-page-header">
-        <h2>{copy("nav.keys")}</h2>
+      {keyDetail === null ? <PageHeader title={copy("nav.keys")}>
         {canManage ? <CreateKeyForm open={creating} onOpenChange={setCreating} onSecret={(secret, trigger) => { secretTrigger.current = trigger; setNotice(copy("ui.key.created")); setReveal(secret); }} /> : null}
-      </header> : null}
+      </PageHeader> : null}
       {keyDetail ? (
         <DetailTabs
           label={fill(copy("ui.key"), { id: keyDetail.id })}
@@ -662,7 +663,11 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
             <p>{detailFailure.message}</p>{detailFailure.code ? <p>{detailFailure.code}</p> : null}
             <Button size="2" variant="soft" color="gray" onClick={() => { void addressedKey.refetch(); }}>{copy("ui.retry")}</Button>
           </div> : null}
-          {keyDetail.tab === "overview" && openedKey ? <div className="ui-panel">{openedKey.created ? <p>{openedKey.created}</p> : null}</div> : null}
+          {keyDetail.tab === "overview" && openedKey ? <dl className="ui-panel ui-detail-facts">
+            <div><dt>{copy("ui.name")}</dt><dd>{openedKey.name || "—"}</dd></div>
+            <div><dt>{copy("ui.created")}</dt><dd>{openedKey.created ? <ReadableInstantText value={openedKey.created} /> : "—"}</dd></div>
+            <div><dt>{copy("ux.allow.bucket.creation")}</dt><dd>{openedKey.createBucket === null ? "—" : copy(openedKey.createBucket ? "ui.yes" : "ui.no")}</dd></div>
+          </dl> : null}
           {keyDetail.tab === "buckets" ? <KeyBuckets keyId={keyDetail.id} /> : null}
           {keyDetail.tab === "settings" && openedKey && canManage ? (
             <div className="ui-settings">
@@ -684,7 +689,7 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
         </DetailTabs>
       ) : null}
       {keyDetail === null && view.busy ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.keys")}>{copy("ui.loading.keys")}</div>
+        <LoadingState label={copy("ui.loading.keys")} />
       ) : null}
       {keyDetail === null && view.refreshing ? <p>{copy("ui.refreshing.keys")}</p> : null}
       {keyDetail === null && view.failure && !isGarageDown(view.failure) ? (
@@ -734,7 +739,7 @@ export function Keys({ canManage = false }: { canManage?: boolean }) {
       </div>
       ) : null}
       {keyDetail === null && view.empty ? (
-        <p>{canManage ? copy("ui.there.are.no.keys.create.the.first.key") : copy("ui.there.are.no.keys")}</p>
+        <EmptyState title={canManage ? copy("ui.there.are.no.keys.create.the.first.key") : copy("ui.there.are.no.keys")} />
       ) : null}
       {keyDetail === null && list.data && shown.length > 0 ? (
         <div className="ui-table-container min-w-0" role="region" aria-label={copy("ui.key.2")} tabIndex={0}>

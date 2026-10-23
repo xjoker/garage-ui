@@ -1,8 +1,11 @@
-import { Button, Card, Heading } from "@radix-ui/themes";
+import { Button, Heading } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api, apiPath, captureAuthGeneration, noteUnauthenticated } from "./api/client";
 import { isGarageDown } from "./garageDown";
 import { CompactCapacityText, useI18n, type Language, copy, fill, translate, phrase } from "./i18n";
+
+import { Icon } from "./Icon";
+import { LoadingState, PageHeader } from "./ui";
 
 const COUNTS = [
   ["knownNodes", "Known nodes"],
@@ -349,86 +352,75 @@ export function ClusterHealth() {
   const healthCode = shownCode(health.error);
   const statisticsCode = shownCode(statistics.error);
 
+  const refreshing = health.isFetching || statistics.isFetching || metrics.isFetching;
+
   return (
-    <section className="ui-page" aria-label={copy("ui.cluster.health")}>
-      <Heading size="5">{copy("ui.cluster.health")}</Heading>
-      <Heading as="h3" size="3">{copy("ui.health.status")}</Heading>
-      {health.isPending ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.cluster.health")}>{copy("ui.loading.cluster.health")}</div>
-      ) : null}
-      {health.isError && !isGarageDown(health.error) ? (
-        <>
-          <p>{healthMessage}</p>
-          {healthCode ? <p>{healthCode}</p> : null}
-          <Button size="2" variant="soft" color="gray"
-            type="button"
-            onClick={() => {
-              void health.refetch();
-            }}
-          >
-            {copy("ui.retry.health")}</Button>
-        </>
-      ) : null}
-      {health.isSuccess ? (
-        <Card size="2" asChild><dl className="console-metrics">
-          <div>
-            <dt className="font-medium">{copy("ui.status")}</dt>
-            <dd className="mt-1 text-lg font-semibold">{health.data.status}</dd>
+    <section className="ui-page console-overview" aria-label={copy("ui.cluster.health")}>
+      <PageHeader title={copy("ui.cluster.health")}>
+        <Button size="2" variant="surface" color="gray" disabled={refreshing} onClick={() => {
+          void health.refetch();
+          void statistics.refetch();
+          void metrics.refetch();
+        }}><Icon name="refresh" className={refreshing ? "ui-spin" : ""} />{copy(refreshing ? "design.refreshing" : "design.refresh")}</Button>
+      </PageHeader>
+      <section className="console-overview-section">
+        <header className="console-section-heading"><Heading as="h3" size="3">{copy("ui.health.status")}</Heading></header>
+        {health.isPending ? <LoadingState label={copy("ui.loading.cluster.health")} /> : null}
+        {health.isError && !isGarageDown(health.error) ? (
+          <div className="ui-alert">
+            <p>{healthMessage}</p>
+            {healthCode ? <p>{healthCode}</p> : null}
+            <Button size="2" variant="soft" color="gray" type="button" onClick={() => { void health.refetch(); }}>{copy("ui.retry.health")}</Button>
           </div>
-          {COUNTS.map(([key, label]) => (
-            <div key={key}>
-              <dt className="font-medium">{translate(label)}</dt>
-              <dd className="mt-1 text-lg font-semibold">{health.data[key]}</dd>
+        ) : null}
+        {health.isSuccess ? (
+          <dl className="console-metrics console-metrics-health">
+            <div className="console-cluster-state" data-state={health.data.status}>
+              <dt>{copy("ui.status")}</dt>
+              <dd><span className="console-state-dot" aria-hidden="true" />{health.data.status}</dd>
             </div>
-          ))}
-        </dl></Card>
-      ) : null}
-      <Heading as="h3" size="3">{copy("ui.capacity")}</Heading>
-      {statistics.isPending ? <p role="status">{copy("ui.working")}</p> : null}
-      {statistics.isError && !isGarageDown(statistics.error) ? (
-        <>
-          <p>{fill(copy("ui.statistics"), { statisticsMessage: statisticsMessage })}</p>
-          {statisticsCode ? <p>{statisticsCode}</p> : null}
-          <Button size="2" variant="soft" color="gray"
-            type="button"
-            onClick={() => {
-              void statistics.refetch();
-            }}
-          >
-            {copy("ui.retry.statistics")}</Button>
-        </>
-      ) : null}
-      {statistics.isSuccess ? (
-        <>
-          <Card size="2" asChild><dl className="console-metrics">
-            {STATISTICS.map(([key, label, display, unset]) => (
-              <div key={key}>
-                <dt className="font-medium">{translate(label)}</dt>
-                <dd className="mt-1 text-lg font-semibold">{shownStatistic(statistics.data[key], display, unset, language)}</dd>
-              </div>
+            {COUNTS.map(([key, label]) => (
+              <div key={key}><dt>{translate(label)}</dt><dd>{health.data[key]}</dd></div>
             ))}
-          </dl></Card>
-          {statistics.data.incompleteAvailInfo ? (
-            <p>{copy("ui.available.space.may.be.lower.because.some.nodes")}</p>
-          ) : null}
-        </>
-      ) : null}
-      <Heading as="h3" size="3">{translate("Activity")}</Heading>
-      {metrics.isPending ? <p role="status">{copy("ui.working")}</p> : null}
-      {metrics.isError && !isGarageDown(metrics.error) ? <div className="ui-alert"><p role="alert">{metrics.error instanceof Error ? metrics.error.message : copy("ui.cluster.metrics.are.unavailable")}</p><Button size="2" variant="soft" color="gray" onClick={() => { void metrics.refetch(); }}>{copy("ui.retry")}</Button></div> : null}
-      {metrics.isSuccess ? (
-        <>
-          <Card size="2" asChild><dl className="console-metrics">
-            {METRICS.map(([key, label]) => (
-              <div key={key}>
-                <dt className="font-medium">{translate(label)}</dt>
-                <dd className="mt-1 text-lg font-semibold">{key === "blockReadBytes" || key === "blockWriteBytes" ? <CompactCapacityText digits={String(metrics.data[key])} /> : metrics.data[key]}</dd>
-              </div>
-            ))}
-          </dl></Card>
-          {metrics.data.notice ? <p>{metrics.data.notice}</p> : null}
-        </>
-      ) : null}
+          </dl>
+        ) : null}
+      </section>
+      <section className="console-overview-section">
+        <header className="console-section-heading"><Heading as="h3" size="3">{copy("ui.capacity")}</Heading></header>
+        {statistics.isPending ? <LoadingState label={copy("ui.working")} /> : null}
+        {statistics.isError && !isGarageDown(statistics.error) ? (
+          <div className="ui-alert">
+            <p>{fill(copy("ui.statistics"), { statisticsMessage })}</p>
+            {statisticsCode ? <p>{statisticsCode}</p> : null}
+            <Button size="2" variant="soft" color="gray" type="button" onClick={() => { void statistics.refetch(); }}>{copy("ui.retry.statistics")}</Button>
+          </div>
+        ) : null}
+        {statistics.isSuccess ? (
+          <>
+            <dl className="console-metrics console-metrics-capacity">
+              {STATISTICS.map(([key, label, display, unset]) => (
+                <div key={key}><dt>{translate(label)}</dt><dd>{shownStatistic(statistics.data[key], display, unset, language)}</dd></div>
+              ))}
+            </dl>
+            {statistics.data.incompleteAvailInfo ? <p className="ui-muted">{copy("ui.available.space.may.be.lower.because.some.nodes")}</p> : null}
+          </>
+        ) : null}
+      </section>
+      <section className="console-overview-section">
+        <header className="console-section-heading"><Heading as="h3" size="3">{translate("Activity")}</Heading></header>
+        {metrics.isPending ? <LoadingState label={copy("ui.working")} /> : null}
+        {metrics.isError && !isGarageDown(metrics.error) ? <div className="ui-alert"><p role="alert">{metrics.error instanceof Error ? metrics.error.message : copy("ui.cluster.metrics.are.unavailable")}</p><Button size="2" variant="soft" color="gray" onClick={() => { void metrics.refetch(); }}>{copy("ui.retry")}</Button></div> : null}
+        {metrics.isSuccess ? (
+          <>
+            <dl className="console-metrics console-metrics-activity">
+              {METRICS.map(([key, label]) => (
+                <div key={key}><dt>{translate(label)}</dt><dd>{key === "blockReadBytes" || key === "blockWriteBytes" ? <CompactCapacityText digits={String(metrics.data[key])} /> : metrics.data[key]}</dd></div>
+              ))}
+            </dl>
+            {metrics.data.notice ? <p className="ui-muted">{metrics.data.notice}</p> : null}
+          </>
+        ) : null}
+      </section>
     </section>
   );
 }

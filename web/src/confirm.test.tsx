@@ -147,9 +147,9 @@ test("pending confirmation blocks confirmation and every dismissal path", async 
   }
   render(<Probe />);
   const dialog = screen.getByRole("dialog");
-  const working = screen.getByRole("button", { name: "Working" }) as HTMLButtonElement;
+  const working = screen.getByRole("button", { name: "In progress" }) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
-  expect(working.textContent).toBe("Working");
+  expect(working.textContent).toBe("In progress");
   expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
   fireEvent.click(working);
@@ -184,7 +184,7 @@ test("pending high confirmation keeps the typed name and does not confirm", () =
   );
   const input = screen.getByRole("textbox") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "photos" } });
-  const working = screen.getByRole("button", { name: "Working" }) as HTMLButtonElement;
+  const working = screen.getByRole("button", { name: "In progress" }) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
   expect(input.value).toBe("photos");
   expect(screen.getByText("Type photos to confirm")).toBeTruthy();

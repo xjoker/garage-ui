@@ -234,7 +234,7 @@ test("keeps upload collapsed until opened and preserves jobs when closed", async
     throw new Error("missing upload row photos/");
   }
   await waitFor(() => expect(prefixFile.textContent).toContain("Uploading"));
-  expect(screen.getByRole("button", { name: "Upload · 2" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Upload (2)" })).toBeTruthy();
   expect(within(prefixFile).queryByRole("button", { name: "Overwrite" })).toBeNull();
   fireEvent.click(summary);
   expect(disclosure?.open).toBe(false);
@@ -1246,7 +1246,7 @@ test("shows the text viewer and Download for one object without write controls",
   expect(screen.getByRole("button", { name: "Copy path" })).toBeTruthy();
 });
 
-test("shows Working while an object delete is submitting", async () => {
+test("shows In progress while an object delete is submitting", async () => {
   let release: (response: Response) => void = () => {};
   vi.stubGlobal(
     "fetch",
@@ -1267,9 +1267,9 @@ test("shows Working while an object delete is submitting", async () => {
   const dialog = screen.getByRole("dialog");
   expect(within(dialog).getByRole("button", { name: "Confirm" })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
-  const working = (await within(dialog).findByRole("button", { name: "Working" })) as HTMLButtonElement;
+  const working = (await within(dialog).findByRole("button", { name: "In progress" })) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
-  expect(working.textContent).toBe("Working");
+  expect(working.textContent).toBe("In progress");
   expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
   const cancel = within(dialog).getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
   expect(cancel.disabled).toBe(false);
@@ -1280,7 +1280,7 @@ test("shows Working while an object delete is submitting", async () => {
   });
 });
 
-test("shows Working while a batch delete is submitting", async () => {
+test("shows In progress while a batch delete is submitting", async () => {
   let release: (response: Response) => void = () => {};
   vi.stubGlobal(
     "fetch",
@@ -1307,7 +1307,7 @@ test("shows Working while a batch delete is submitting", async () => {
   const typed = within(dialog).getByRole("textbox") as HTMLInputElement;
   fireEvent.change(typed, { target: { value: "2" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
-  const working = (await within(dialog).findByRole("button", { name: "Working" })) as HTMLButtonElement;
+  const working = (await within(dialog).findByRole("button", { name: "In progress" })) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
   expect(typed.value).toBe("2");
   expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
@@ -1322,7 +1322,7 @@ test("shows Working while a batch delete is submitting", async () => {
   });
 });
 
-test("shows Working while a prefix delete is submitting", async () => {
+test("shows In progress while a prefix delete is submitting", async () => {
   let release: (response: Response) => void = () => {};
   vi.stubGlobal(
     "fetch",
@@ -1345,7 +1345,7 @@ test("shows Working while a prefix delete is submitting", async () => {
   const typed = within(dialog).getByRole("textbox") as HTMLInputElement;
   fireEvent.change(typed, { target: { value: "photos/" } });
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
-  const working = (await within(dialog).findByRole("button", { name: "Working" })) as HTMLButtonElement;
+  const working = (await within(dialog).findByRole("button", { name: "In progress" })) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
   expect(typed.value).toBe("photos/");
   expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
@@ -1725,7 +1725,7 @@ test("a bucket without keys explains how to restore access instead of showing an
     return json({ code: "no_usable_key", message: "This bucket has no usable read-write key" }, 412);
   }));
   renderObjects("bkt-1", { canWrite: true, canTransfer: true, canManage: true });
-  expect(await screen.findByText("Create an S3 key, grant it read and write access to this bucket, then retry. The UI will find it automatically.")).toBeTruthy();
+  expect(await screen.findByText("Create an S3 key with read and write access to this bucket, then retry.")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Create key" }).getAttribute("href")).toBe("#keys");
   expect(screen.getByRole("link", { name: "Bucket permissions" }).getAttribute("href")).toBe("#bucket/bkt-1/permissions");
   expect(screen.queryByRole("combobox", { name: "Bucket key" })).toBeNull();

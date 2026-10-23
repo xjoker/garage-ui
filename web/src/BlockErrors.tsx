@@ -6,7 +6,7 @@ import { ApiError, api } from "./api/client";
 import { ConfirmDialog } from "./confirm";
 import { isGarageDown } from "./garageDown";
 import { blockErrorsNodeId, useLocationHash } from "./Nav";
-import { DataCell, ResourceIdentity } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, ResourceIdentity } from "./ui";
 import { copy, fill, translate } from "./i18n";
 
 function unavailableMessage(): string {
@@ -218,9 +218,9 @@ function BlockErrorList({ nodeId }: { nodeId: string }) {
 
   return (
     <section className="ui-page" aria-label={copy("nav.blockErrors")} aria-busy={view.busy}>
-      <header className="ui-page-header"><div><h2>{copy("nav.blockErrors")}</h2><ResourceIdentity id={nodeId} /></div></header>
+      <PageHeader title={copy("nav.blockErrors")}><ResourceIdentity id={nodeId} /></PageHeader>
       {view.busy ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.block.errors")}>{copy("ui.loading.block.errors")}</div>
+        <LoadingState label={copy("ui.loading.block.errors")} />
       ) : null}
       {view.refreshing ? <p>{copy("ui.refreshing.block.errors")}</p> : null}
       {view.failure && !isGarageDown(view.failure) ? (
@@ -244,7 +244,7 @@ function BlockErrorList({ nodeId }: { nodeId: string }) {
       ) : null}
       {retry.isPending || purge.isPending ? <p role="status">{copy("ui.working")}</p> : null}
       {retry.isSuccess || purge.isSuccess ? <p role="status">{copy("ui.saved")}</p> : null}
-      {view.empty ? <p>{copy("ui.there.are.no.block.errors")}</p> : null}
+      {view.empty ? <EmptyState title={copy("ui.there.are.no.block.errors")} /> : null}
       {rows.length > 0 ? (
         <>
           <Button size="2" variant="soft" color="gray"
@@ -344,7 +344,7 @@ export function BlockErrors() {
   if (nodeId === null) {
     return (
       <section className="ui-page" aria-label={copy("nav.blockErrors")} aria-busy={false}>
-        <h2 className="text-lg font-semibold">{copy("nav.blockErrors")}</h2>
+        <PageHeader title={copy("nav.blockErrors")} />
         <OperationNodeSelection route="block-errors" />
       </section>
     );

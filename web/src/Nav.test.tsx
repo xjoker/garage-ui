@@ -104,7 +104,7 @@ function linkNames() {
 test("an admin sees Overview through Settings in order and no undelivered pages", async () => {
   stubSignedIn("admin");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Ada · admin" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Ada, admin" })).toBeTruthy();
   expect(linkNames()).toEqual(adminEntries);
   expect(sectionsNav().queryByRole("link", { name: "Operations" })).toBeNull();
 });
@@ -112,7 +112,7 @@ test("an admin sees Overview through Settings in order and no undelivered pages"
 test("a viewer sees Nodes and layout and the Overview health panel but not Admin tokens or Users", async () => {
   const fetchMock = stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(linkNames()).toEqual(viewerEntries);
   expect(await screen.findByRole("heading", { name: "Cluster health" })).toBeTruthy();
   expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/users"))).toBe(false);
@@ -128,7 +128,7 @@ test("a viewer on #nodes sees the node list and layout history with no write con
   window.location.hash = "#nodes";
   const fetchMock = stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(await screen.findByRole("region", { name: "Node list" })).toBeTruthy();
   expect(await screen.findByText("garage-1")).toBeTruthy();
   expect(await screen.findByText("Current")).toBeTruthy();
@@ -154,10 +154,10 @@ test("a viewer on #nodes sees the node list and layout history with no write con
 test("settings shows About and the password form, and overview does not", async () => {
   stubSignedIn("viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "About" })).toBeNull();
   expect(screen.queryByLabelText("Current password")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Bea · viewer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Bea, viewer" }));
   expect(screen.getAllByText("Garage v2.4.1")).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Log out" })).toBeTruthy();
 
@@ -178,7 +178,7 @@ test("settings shows About and the password form, and overview does not", async 
 test("nodes and layout is its own admin page and is absent from overview", async () => {
   const fetchMock = stubSignedIn("admin");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Ada · admin" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Ada, admin" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Cluster health" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Nodes" })).toBeNull();
   expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/cluster/status"))).toBe(
@@ -200,10 +200,10 @@ test("nodes and layout is its own admin page and is absent from overview", async
 test("the top bar keeps a health status badge when the section changes", async () => {
   stubSignedIn("viewer");
   renderApp();
-  fireEvent.click(await screen.findByRole("button", { name: "Bea · viewer" }));
-  expect(await screen.findByText("ok · test")).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", { name: "Bea, viewer" }));
+  expect(await screen.findByText("ok, test")).toBeTruthy();
   const badge = screen.getByRole("status", { name: "Health status" });
-  expect(badge.textContent).toBe("ok · test");
+  expect(badge.textContent).toBe("ok, test");
   const version = screen.getByText("Garage v2.4.1");
   const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
   expect(version.closest(".console-health")).toBeTruthy();
@@ -211,7 +211,7 @@ test("the top bar keeps a health status badge when the section changes", async (
 
   fireEvent.click(sectionsNav().getByRole("link", { name: "Keys" }));
   expect(await screen.findByRole("heading", { name: "Keys" })).toBeTruthy();
-  expect(screen.getByRole("status", { name: "Health status" }).textContent).toBe("ok · test");
+  expect(screen.getByRole("status", { name: "Health status" }).textContent).toBe("ok, test");
   expect(screen.getByText("Garage v2.4.1").closest(".console-health")).toBeTruthy();
   expect(screen.getByRole("navigation", { name: "Breadcrumb" }).closest("header")).toBeTruthy();
 });
@@ -224,7 +224,7 @@ test("mobile navigation is a labelled modal and Escape returns focus to Menu", a
   mobileViewport();
   stubSignedIn("viewer");
   renderApp();
-  await screen.findByRole("button", { name: "Bea · viewer" });
+  await screen.findByRole("button", { name: "Bea, viewer" });
   const menu = screen.getByRole("button", { name: "Menu" });
   menu.focus();
   fireEvent.click(menu);
@@ -242,7 +242,7 @@ test("mobile navigation stays open on rejected dirty leave and closes on accepte
   stubSignedIn("viewer");
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   renderApp();
-  await screen.findByRole("button", { name: "Bea · viewer" });
+  await screen.findByRole("button", { name: "Bea, viewer" });
   fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "dirty" } });
   const menu = screen.getByRole("button", { name: "Menu" });
   fireEvent.click(menu);
@@ -270,9 +270,9 @@ test("mobile Menu lives in the header and a desktop resize clears the open drawe
   renderApp();
   const menu = await screen.findByRole("button", { name: "Menu" });
   expect(menu.closest(".console-topbar")).toBeTruthy();
-  const account = screen.getByRole("button", { name: "Bea · viewer" });
+  const account = screen.getByRole("button", { name: "Bea, viewer" });
   fireEvent.click(account);
-  expect(screen.getByRole("dialog", { name: "Bea · viewer" })).toBeTruthy();
+  expect(screen.getByRole("dialog", { name: "Bea, viewer" })).toBeTruthy();
   fireEvent.click(menu);
   expect(screen.getByRole("dialog", { name: "Sections" })).toBeTruthy();
   act(() => { narrow = false; changed?.(); });
@@ -288,17 +288,17 @@ test("mobile Menu lives in the header and a desktop resize clears the open drawe
 test("one compact account trigger opens readable identity and system status", async () => {
   stubSignedIn("viewer");
   renderApp();
-  const account = await screen.findByRole("button", { name: "Bea · viewer" });
+  const account = await screen.findByRole("button", { name: "Bea, viewer" });
   expect(account.querySelector(".console-account-name")?.textContent).toBe("Bea");
   expect(account.getAttribute("data-state")).toBe("closed");
-  expect(screen.queryByRole("dialog", { name: "Bea · viewer" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Bea, viewer" })).toBeNull();
   fireEvent.click(account);
-  const panel = screen.getByRole("dialog", { name: "Bea · viewer" });
-  expect(panel.querySelector(".console-account-identity")?.textContent).toBe("Bea · viewer");
-  expect((await within(panel).findByRole("status", { name: "Health status" })).textContent).toBe("ok · test");
+  const panel = screen.getByRole("dialog", { name: "Bea, viewer" });
+  expect(panel.querySelector(".console-account-identity")?.textContent).toBe("Bea, viewer");
+  expect((await within(panel).findByRole("status", { name: "Health status" })).textContent).toBe("ok, test");
   expect(within(panel).getByText("Garage v2.4.1")).toBeTruthy();
   expect(within(panel).getByRole("button", { name: "Log out" })).toBeTruthy();
   fireEvent.keyDown(panel, { key: "Escape" });
-  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Bea · viewer" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Bea, viewer" })).toBeNull());
   expect(document.activeElement).toBe(account);
 });

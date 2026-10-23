@@ -30,6 +30,8 @@ import {
 } from "./Nav";
 import { ThemeChooser } from "./theme";
 import { releaseHash, savePhase, saveStatus, setFormDirty } from "./unsaved";
+import { Icon } from "./Icon";
+import { LoadingState, PageHeader } from "./ui";
 
 const AdminTokens = lazy(() => import("./AdminTokens").then((module) => ({ default: module.AdminTokens })));
 const Audit = lazy(() => import("./Audit").then((module) => ({ default: module.Audit })));
@@ -357,9 +359,10 @@ function GarageBanner() {
     return null;
   }
   return (
-    <>
-      <Callout.Root color="red"><Callout.Text role="alert">{copy("ui.garage.admin.api.is.not.reachable")}</Callout.Text></Callout.Root>
-      <Button size="2"
+    <div className="console-connection-alert">
+      <Icon name="block-errors" />
+      <p role="alert">{copy("ui.garage.admin.api.is.not.reachable")}</p>
+      <Button size="2" color="red" variant="soft"
         type="button"
         onClick={() => {
           void client.refetchQueries({
@@ -369,7 +372,7 @@ function GarageBanner() {
         }}
       >
         {copy("ui.retry")}</Button>
-    </>
+    </div>
   );
 }
 
@@ -420,7 +423,7 @@ function Home({ status }: { status: SessionStatus }) {
   });
   let healthText = "checking";
   if (health.isSuccess) {
-    healthText = `${health.data.status} · ${health.data.version}`;
+    healthText = `${health.data.status}, ${health.data.version}`;
   } else if (health.isError) {
     healthText = "unavailable";
   }
@@ -435,17 +438,17 @@ function Home({ status }: { status: SessionStatus }) {
       <Nav role={status.role ?? ""} section={section} open={menuOpen} onToggle={toggleMenu} onClose={closeHeaderOverlays} menuTrigger={menuTrigger} onSelect={select} />
       <div className="console-workspace">
         <header className="console-topbar">
-          <Button ref={menuTrigger} size="2" variant="soft" color="gray" className="console-menu" type="button" aria-expanded={menuOpen} aria-controls="console-navigation" onClick={toggleMenu}>{t("nav.menu")}</Button>
+          <Button ref={menuTrigger} size="2" variant="soft" color="gray" className="console-menu" type="button" aria-label={t("nav.menu")} aria-expanded={menuOpen} aria-controls="console-navigation" onClick={toggleMenu}><Icon name="menu" /></Button>
           <MobileContext section={section} hash={hash} onSelect={select} />
           <Breadcrumb section={section} hash={hash} onSelect={select} />
           <Popover.Root open={accountOpen} onOpenChange={setAccountOpen}>
             <Popover.Trigger>
-              <Button size="2" variant="ghost" color="gray" className="console-session console-account-trigger" aria-label={`${status.username} · ${status.role}`}>
-                <span className="console-account-name">{status.username}</span><span aria-hidden="true">▾</span>
+              <Button size="2" variant="ghost" color="gray" className="console-session console-account-trigger" aria-label={`${status.username}, ${status.role}`}>
+                <span className="console-avatar" aria-hidden="true"><Icon name="users" /></span><span className="console-account-name">{status.username}</span><span aria-hidden="true">▾</span>
               </Button>
             </Popover.Trigger>
-            <Popover.Content size="2" align="end" maxWidth="320px" className="console-account-panel" aria-label={`${status.username} · ${status.role}`}>
-              <p className="console-account-identity">{status.username} · {status.role}</p>
+            <Popover.Content size="2" align="end" maxWidth="320px" className="console-account-panel" aria-label={`${status.username}, ${status.role}`}>
+              <p className="console-account-identity">{status.username}, {status.role}</p>
               <div className="console-health">
                 <p className="ui-muted">{t("shell.status")}</p>
                 <p className="ui-status" role="status" aria-label={copy("ui.health.status")}>{healthText}</p>
@@ -459,7 +462,7 @@ function Home({ status }: { status: SessionStatus }) {
           <GarageBanner />
           {section === "overview" && status.garage_write_blocked === true ? <Callout.Root color="orange"><Callout.Text role="alert">{copy("ui.garage.v2.3.0.or.newer.is.required")}</Callout.Text></Callout.Root> : null}
           {section === "overview" && status.tls_insecure === true ? <Callout.Root color="orange"><Callout.Text role="alert">{copy("ui.tls.certificate.verification.is.off")}</Callout.Text></Callout.Root> : null}
-          <Suspense key={section} fallback={<div className="ui-page" role="status" aria-busy="true">{fill(t("ui.loading.section"), { section: t(sectionCopyKey(section)) })}</div>}>
+          <Suspense key={section} fallback={<LoadingState label={fill(t("ui.loading.section"), { section: t(sectionCopyKey(section)) })} />}>
           {section === "overview" ? <ClusterHealth /> : null}
           {section === "overview" && !admin ? (
             <section className="ui-page">
@@ -482,7 +485,7 @@ function Home({ status }: { status: SessionStatus }) {
         {section === "audit" && admin ? <Audit /> : null}
         {section === "settings" ? (
           <div className="ui-page">
-            <header className="ui-page-header"><Heading size="5">{t("nav.settings")}</Heading></header>
+            <PageHeader title={t("nav.settings")} />
             <section className="ui-settings-section"><header><Heading as="h3" size="3">{t("settings.appearance")}</Heading></header><div className="ui-settings-controls"><ThemeChooser /><LanguageChooser /></div></section>
             <section className="ui-settings-section"><header><Heading as="h3" size="3">{copy("ui.change.password")}</Heading></header><div className="ui-settings-controls">
             <form

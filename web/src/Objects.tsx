@@ -8,7 +8,7 @@ import { bucketUrl } from "./BucketPermissions";
 import { ConfirmDialog } from "./confirm";
 import { bucketLocationFromHash, hashForDetail, hashForObjects, useLocationHash } from "./Nav";
 import { releaseHash } from "./unsaved";
-import { DataCell, Pagination, ResourceIdentity } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, Pagination, ResourceIdentity } from "./ui";
 import { UploadPanel } from "./UploadPanel";
 
 type ObjectEntry = {
@@ -1092,14 +1092,15 @@ export function Objects({
 
   return (
     <section className="ui-page ui-objects" aria-label={copy("nav.objects")} aria-busy={loading}>
-      {!embedded ? <header className="ui-page-header">
-      <h2>{copy("nav.objects")}</h2>
-      <Button size="2" variant="soft" color="gray"
-        type="button"
-        onClick={onBack}
-      >
-        {copy("ui.back.to.buckets")}</Button>
-      </header> : null}
+      {!embedded ? <PageHeader title={copy("nav.objects")}>
+        <Button size="2" variant="soft" color="gray" type="button" onClick={onBack}>{copy("ui.back.to.buckets")}</Button>
+        {canWrite ? <Button size="2" variant="solid" ref={uploadTrigger} className="ui-objects-upload" type="button" aria-controls={uploadId} aria-expanded={uploadOpen} onClick={() => {
+          const panel = uploadDisclosure.current;
+          if (panel === null) return;
+          panel.open = true;
+          panel.querySelector<HTMLInputElement>('input[type="file"]')?.focus();
+        }}>{copy("ui.upload")}{activeUploads > 0 ? <span>({activeUploads})</span> : null}</Button> : null}
+      </PageHeader> : null}
       {!embedded ? <ResourceIdentity id={bucketId} /> : null}
       <nav aria-label={copy("ui.prefix")} className="ui-actions ui-objects-prefix">
         <Button size="2" variant="soft" color="gray"
@@ -1127,12 +1128,12 @@ export function Objects({
         ))}
       </nav>
       <div className="ui-toolbar ui-objects-tools items-end">
-      {canWrite ? <Button size="2" variant="solid" ref={uploadTrigger} className="ui-objects-upload" type="button" aria-controls={uploadId} aria-expanded={uploadOpen} onClick={() => {
+      {embedded && canWrite ? <Button size="2" variant="solid" ref={uploadTrigger} className="ui-objects-upload" type="button" aria-controls={uploadId} aria-expanded={uploadOpen} onClick={() => {
         const panel = uploadDisclosure.current;
         if (panel === null) return;
         panel.open = true;
         panel.querySelector<HTMLInputElement>('input[type="file"]')?.focus();
-      }}>{copy("ui.upload")}{activeUploads > 0 ? <span> · {activeUploads}</span> : null}</Button> : null}
+      }}>{copy("ui.upload")}{activeUploads > 0 ? <span>({activeUploads})</span> : null}</Button> : null}
       <form
         className="ui-actions ui-objects-search items-end"
         onSubmit={(event) => {
@@ -1198,13 +1199,13 @@ export function Objects({
         }}>
           <summary>
             {copy("ui.close.upload")}
-            {activeUploads > 0 ? <span className="ui-status ml-3">{copy("ui.uploading")} · {activeUploads}</span> : null}
+            {activeUploads > 0 ? <span className="ui-status ml-3">{copy("ui.uploading")} ({activeUploads})</span> : null}
           </summary>
           <UploadPanel key={bucketId} bucketId={bucketId} existingKeys={visibleKeys} prefix={prefix} onActiveChange={setActiveUploads} />
         </details>
       ) : null}
       {loading && !showRows ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.objects")}>{copy("ui.loading.objects")}</div>
+        <LoadingState label={copy("ui.loading.objects")} />
       ) : null}
       {showFailure && failure ? <p className="ui-alert">{translate(failure.message)}</p> : null}
       {showFailure && failure?.code && !needsKey ? <p>{failure.code}</p> : null}
@@ -1261,11 +1262,9 @@ export function Objects({
           {copy("ui.retry")}</Button>
       ) : null}
       {showEmpty ? (
-        <p>
-          {!searching && canWrite
+        <EmptyState title={!searching && canWrite
             ? copy("ui.there.are.no.objects.upload.the.first.object")
-            : copy("ui.there.are.no.objects")}
-        </p>
+            : copy("ui.there.are.no.objects")} />
       ) : null}
       {searching && found.data?.truncated && found.data.reason ? <p>{found.data.reason}</p> : null}
       {shownPicked.length > 0 ? (
@@ -1361,7 +1360,7 @@ export function Objects({
                     </div>
                   ) : null}
                   {shareObject.error instanceof Error ? <p role="alert">{shareObject.error.message}</p> : null}
-                  <div className="ui-actions">
+                  <div className="ui-dialog-actions">
                     <Dialog.Close>
                       <Button size="2" variant="soft" color="gray" disabled={shareObject.isPending}>{copy("ui.cancel")}</Button>
                     </Dialog.Close>

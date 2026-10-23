@@ -14,6 +14,6 @@ test("creates the first administrator from the setup wizard", async ({ page }) =
 
   await assertAuthenticated(page);
   await openAccount(page);
-  await expect(page.getByText(`${administrator.username} · admin`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`${administrator.username}, admin`, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create administrator" })).toHaveCount(0);
 });

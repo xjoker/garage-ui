@@ -134,7 +134,7 @@ test("Radix root and dialog portals synchronize local, storage, and system theme
   const root = container.querySelector(".radix-themes");
   const portal = screen.getByRole("dialog").closest(".radix-themes");
   expect(root?.getAttribute("data-accent-color")).toBe("orange");
-  expect(root?.getAttribute("data-gray-color")).toBe("gray");
+  expect(root?.getAttribute("data-gray-color")).toBe("slate");
   expect(root?.getAttribute("data-radius")).toBe("medium");
   act(() => writeThemeChoice(localStorage, "dark"));
   expect(root?.classList.contains("dark")).toBe(true);

@@ -3,7 +3,7 @@ import type { CopyKey } from "./copy-en";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError, api, apiPath } from "./api/client";
-import { DataCell, Pagination } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, Pagination } from "./ui";
 import { isGarageDown } from "./garageDown";
 import { ReadableInstantText, copy, fill, translate } from "./i18n";
 
@@ -157,8 +157,7 @@ export function Audit() {
   };
   return (
     <section className="ui-page" aria-label={copy("nav.audit")} aria-busy={view.busy}>
-      <div className="ui-page-header">
-        <h2>{copy("nav.audit")}</h2>
+      <PageHeader title={copy("nav.audit")}>
         <Button size="2" variant="soft" color="gray"
           type="button"
           disabled={filterError !== null}
@@ -170,7 +169,7 @@ export function Audit() {
           }}
         >
           {copy("ui.export.audit")}</Button>
-      </div>
+      </PageHeader>
       <details className="ui-disclosure ui-audit-filters">
         <summary>{copy("ui.audit.filters")}{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}</summary>
         <div className="ui-form">
@@ -203,7 +202,7 @@ export function Audit() {
       </details>
       {filterError ? <p className="ui-alert" role="alert">{filterError}</p> : null}
       {exportFailed ? <p>{copy("ui.export.failed")}</p> : null}
-      {view.busy ? <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.audit")}>{copy("ui.loading.audit")}</div> : null}
+      {view.busy ? <LoadingState label={copy("ui.loading.audit")} /> : null}
       {view.refreshing ? <p>{copy("ui.refreshing.audit")}</p> : null}
       {view.failure && !isGarageDown(view.failure) ? (
         <>
@@ -218,7 +217,7 @@ export function Audit() {
             {copy("ui.retry")}</Button>
         </>
       ) : null}
-      {view.empty ? <p>{copy("ui.there.are.no.audit.events")}</p> : null}
+      {view.empty ? <EmptyState title={copy("ui.there.are.no.audit.events")} /> : null}
       <div className="ui-table-container" role="region" aria-label={translate("Audit events")} tabIndex={0}>
         <Table.Root className="ui-table ui-table-records ui-audit-table">
           <Table.Header role="rowgroup">

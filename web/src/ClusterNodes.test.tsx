@@ -187,7 +187,7 @@ test("shows an up node with a hostname and a down draining node", async () => {
   const down = screen.getByText("node-down").closest("tr");
   expect(up?.textContent).toContain("node-up");
   expect(up?.textContent).toContain("alpha");
-  expect(screen.getByRole("link", { name: "alpha · Node node-up" }).textContent).toBe("alpha");
+  expect(screen.getByRole("link", { name: "alpha, Node node-up" }).textContent).toBe("alpha");
   expect(up?.textContent).toContain("10.0.0.1:3901");
   expect(up?.textContent).toContain("v2.4.1");
   expect(up?.textContent).toContain("Up");
@@ -572,7 +572,7 @@ test("filters loaded nodes from the query string and keeps that choice in the ad
   fireEvent.keyDown(sort, { key: "ArrowDown" });
   expect(screen.getAllByRole("option").map(option => option.textContent)).toEqual(["Id", "Hostname"]);
   fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" });
-  expect(screen.getByText("Default order is Id.").textContent).toBe("Default order is Id.");
+  expect(screen.getByText("Default sort: ID").textContent).toBe("Default sort: ID");
   expect(screen.queryByText("Only loaded rows")).toBeNull();
   expect(screen.queryByText("There are no nodes. Connect the first node.")).toBeNull();
   expect(screen.queryByText("Nodes are unavailable")).toBeNull();
@@ -699,7 +699,7 @@ test("shows the node list code and retries only cluster status", async () => {
   );
   expect((screen.getByLabelText("Filter nodes") as HTMLInputElement).value).toBe("");
   expect(screen.getByRole("combobox", { name: "Sort nodes" }).textContent).toBe("Id");
-  expect(screen.getByText("Default order is Id.").textContent).toBe("Default order is Id.");
+  expect(screen.getByText("Default sort: ID").textContent).toBe("Default sort: ID");
   expect(callsFor(fetchMock, "/api/cluster/status")).toBe(statusSeen + 1);
   expect(callsFor(fetchMock, "/api/cluster/health")).toBe(healthSeen);
   expect(callsFor(fetchMock, "/api/cluster/statistics")).toBe(statisticsSeen);
@@ -843,7 +843,7 @@ test("purge asks for the block hash before it sends", async () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   });
   expect(window.location.hash).toBe("#node/n1/maintenance");
-  expect(screen.getByRole("heading", { name: "Maintenance for alpha" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "alpha" })).toBeTruthy();
   expect(screen.getByText("Block removal permanently loses object data on alpha.")).toBeTruthy();
   const field = screen.getByLabelText("Block hash for n1") as HTMLInputElement;
   const purge = screen.getByRole("button", { name: "Purge blocks on n1" });
@@ -1120,7 +1120,7 @@ test("skip dead nodes passes the current version and confirms when data may be l
       false,
     );
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(screen.queryByRole("button", {name:"Working"})).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("button", {name:"In progress"})).toBeNull());
   }
 
   fireEvent.click(skip);

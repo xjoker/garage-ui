@@ -104,7 +104,7 @@ export function CapacityField({
   }
 
   return (
-    <form className="ui-form" aria-label={copy("ui.node.capacity")} onSubmit={onSubmit}>
+    <form className="ui-form ui-capacity-form" aria-label={copy("ui.node.capacity")} onSubmit={onSubmit}>
       <label className="ui-field">
         <span className="text-sm">{copy("ui.capacity")}</span>
         <TextField.Root size="2"

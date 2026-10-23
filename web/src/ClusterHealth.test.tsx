@@ -1,6 +1,6 @@
 import { GarageTheme } from "./theme";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 
@@ -141,6 +141,23 @@ function stubFetch(
 
 const disconnected = "Available space may be lower because some nodes are disconnected.";
 
+test("refresh updates health, capacity, and activity together without hiding current data", async () => {
+  const fetchMock = stubFetch(() => json(statistics), () => json(report), "admin", false, () => json(quietMetrics));
+  renderApp();
+  await screen.findByText("degraded");
+  const refresh = await screen.findByRole("button", { name: "Refresh" });
+  await waitFor(() => expect(refresh.hasAttribute("disabled")).toBe(false));
+  fetchMock.mockClear();
+  fireEvent.click(refresh);
+  expect(valueOf("Status")).toBe("degraded");
+  await waitFor(() => {
+    for (const url of ["/api/cluster/health", "/api/cluster/statistics", "/api/metrics"]) {
+      expect(fetchMock.mock.calls.filter(([input]) => String(input) === url)).toHaveLength(1);
+    }
+  });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Refresh" }).hasAttribute("disabled")).toBe(false));
+});
+
 test("shows the status word and the seven cluster health counts to an admin", async () => {
   const fetchMock = stubFetch(json(statistics));
   renderApp();
@@ -203,7 +220,7 @@ test("shows the Garage banner for a down health query and keeps the version aler
 test("shows cluster health to a viewer without requesting the node list", async () => {
   const fetchMock = stubFetch(json(statistics), json(report), "viewer");
   renderApp();
-  expect(await screen.findByRole("button", { name: "Bea · viewer" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Bea, viewer" })).toBeTruthy();
   expect(await screen.findByRole("heading", { name: "Cluster health" })).toBeTruthy();
   expect(await screen.findByText("Object bytes", { selector: "dt" })).toBeTruthy();
   expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/api/cluster/health"))).toBe(true);

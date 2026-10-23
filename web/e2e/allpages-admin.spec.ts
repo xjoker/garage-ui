@@ -196,7 +196,7 @@ for (const width of [360, 390, 768, 1280]) {
         } else {
             await expect(secret.getByText('Copied', { exact: true })).toBeVisible();
         }
-        await secret.getByRole('button', { name: 'I have saved it', exact: true }).click();
+        await secret.getByRole('button', { name: 'Done', exact: true }).click();
         const row = tokens.locator('tbody tr', { hasText: name });
         await expect(row).toBeVisible();
         await row.getByRole('button', { name: 'Edit', exact: true }).click();

@@ -96,7 +96,7 @@ for (const width of [1280, 360]) {
           await expect(identifier).toBeVisible();
           await expect(identity).not.toHaveAttribute("open", "");
           const metrics = await identifier.evaluate((element) => ({ height: element.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(element).lineHeight), text: element.textContent }));
-          expect(metrics.height, "compact node identity must fit within two readable text lines").toBeLessThanOrEqual(metrics.lineHeight * 2);
+          expect(metrics.height, "compact node identity allows a touch target or two readable text lines").toBeLessThanOrEqual(Math.max(44, metrics.lineHeight * 2));
           expect(metrics.text).toContain("…");
           await openDisclosure(identifier);
           await expect(identity.locator("code")).toBeVisible();
@@ -196,10 +196,6 @@ for (const width of [1280, 360]) {
       await page.evaluate((id) => { location.hash = `#buckets/${id}`; }, bucket.id);
       const objects = page.locator('section[aria-label="Objects"]');
       await expect(objects).toBeVisible();
-      const picker = objects.getByLabel("Bucket key");
-      await expect(picker).toBeEnabled({ timeout: 20_000 });
-      await selectChoice(picker, keyId);
-      await objects.getByRole("button", { name: "Use this key", exact: true }).click();
       await expect(objects.getByText("There are no objects. Upload the first object.", { exact: true })).toBeVisible({ timeout: 20_000 });
       await openUpload(objects);
       await objects.getByLabel("Choose files").setInputFiles({ name: "preview.txt", mimeType: "text/plain", buffer: Buffer.from("Readable preview below the object list.") });

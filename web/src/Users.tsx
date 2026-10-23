@@ -6,7 +6,7 @@ import { ConfirmDialog } from "./confirm";
 import { isGarageDown } from "./garageDown";
 import { copy, fill, translate } from "./i18n";
 
-import { DataCell, SettingsSection } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader, SettingsSection } from "./ui";
 
 type Role = "admin" | "viewer";
 
@@ -590,16 +590,16 @@ function CreateAccount({ open, onOpenChange }: { open: boolean; onOpenChange: (o
       </SettingsSection>
       {error ? <p className="ui-alert" role="alert">{error}</p> : null}
       {create.isSuccess ? <p>{copy("ui.user.created")}</p> : null}
-      <div className="ui-actions">
-      <Button size="2" variant="solid" color="orange"
+      <div className="ui-dialog-actions">
+        <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => {
+        setUsername(""); setPassword(""); setRole("viewer"); setDownload(false); setShare(false); setError(null); create.reset(); onOpenChange(false);
+      }}>{copy("ui.cancel")}</Button>
+        <Button size="2" variant="solid" color="orange"
         type="submit"
         disabled={create.isPending || username.length === 0 || password.length === 0}
       >
         {create.isPending ? copy("ui.creating.user") : copy("ui.create.user")}
       </Button>
-      <Button size="2" variant="soft" color="gray" type="button" disabled={create.isPending} onClick={() => {
-        setUsername(""); setPassword(""); setRole("viewer"); setDownload(false); setShare(false); setError(null); create.reset(); onOpenChange(false);
-      }}>{copy("ui.cancel")}</Button>
       </div>
     </form>
     </Dialog.Content></Dialog.Root>
@@ -635,8 +635,9 @@ export function Users({ selfUsername }: { selfUsername: string }) {
 
   return (
     <section className="ui-page" aria-label={copy("nav.users")} aria-busy={view.busy}>
-      <div className="ui-page-header ui-users-header"><h2>{copy("nav.users")}</h2>
-      <CreateAccount open={creating} onOpenChange={setCreating} /></div>
+      <PageHeader title={copy("nav.users")}>
+        <CreateAccount open={creating} onOpenChange={setCreating} />
+      </PageHeader>
       <div className="ui-toolbar ui-resource-filters">
         <label className="ui-field">
           {copy("ui.filter.users")}<TextField.Root size="2"
@@ -664,7 +665,7 @@ export function Users({ selfUsername }: { selfUsername: string }) {
         <details className="ui-filter-help"><summary>{translate("Filtering and sorting apply to the current page")}</summary><p className="ui-muted">{copy("ui.default.order.is.username")}</p></details>
 
       </div>
-      {view.busy ? <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.users")}>{copy("ui.loading.users")}</div> : null}
+      {view.busy ? <LoadingState label={copy("ui.loading.users")} /> : null}
       {view.refreshing ? <p>{copy("ui.refreshing.users")}</p> : null}
       {view.failure && !isGarageDown(view.failure) ? (
         <>
@@ -680,7 +681,7 @@ export function Users({ selfUsername }: { selfUsername: string }) {
         </>
       ) : null}
       {users.isSuccess && loaded.length > 0 && shown.length === 0 ? <p>{translate("No matches on this page.")}</p> : null}
-      {view.empty ? <p>{offset === 0 && users.data?.hasMore === false ? copy("ui.there.are.no.users.create.the.first.user") : translate("No matches on this page.")}</p> : null}
+      {view.empty ? <EmptyState title={offset === 0 && users.data?.hasMore === false ? copy("ui.there.are.no.users.create.the.first.user") : translate("No matches on this page.")} /> : null}
       {users.data && shown.length > 0 ? (
         <div className="ui-table-container" role="region" aria-label={translate("User list")} tabIndex={0}>
           <Table.Root className="ui-table-records ui-user-list">
@@ -719,7 +720,7 @@ export function Users({ selfUsername }: { selfUsername: string }) {
               writeUserOffset(next);
             }}
           >
-            {copy("ui.previous")}</Button>
+            {copy("common.previousPage")}</Button>
           <Button size="2" variant="soft" color="gray"
             type="button"
             disabled={users.data?.hasMore !== true}
@@ -729,7 +730,7 @@ export function Users({ selfUsername }: { selfUsername: string }) {
               writeUserOffset(next);
             }}
           >
-            {copy("ui.next")}</Button>
+            {copy("common.nextPage")}</Button>
         </div>
     </section>
   );

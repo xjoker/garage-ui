@@ -650,7 +650,7 @@ test("shows Granting while the grant is submitting, then Permissions granted", a
   expect(idle.textContent).toBe("Grant");
 });
 
-test("shows Working while revoke is submitting and keeps the dialog when it fails", async () => {
+test("shows In progress while revoke is submitting and keeps the dialog when it fails", async () => {
   let release: (response: Response) => void = () => {};
   document.cookie = "garage_csrf=csrf-token";
   vi.stubGlobal(
@@ -680,9 +680,9 @@ test("shows Working while revoke is submitting and keeps the dialog when it fail
   fireEvent.click(opener);
   const dialog = screen.getByRole("dialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
-  const working = (await within(dialog).findByRole("button", { name: "Working" })) as HTMLButtonElement;
+  const working = (await within(dialog).findByRole("button", { name: "In progress" })) as HTMLButtonElement;
   expect(working.disabled).toBe(true);
-  expect(working.textContent).toBe("Working");
+  expect(working.textContent).toBe("In progress");
   expect(within(dialog).queryByRole("button", { name: "Confirm" })).toBeNull();
   const stillOpen = opener;
   expect(stillOpen.disabled).toBe(false);

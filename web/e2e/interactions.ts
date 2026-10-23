@@ -57,9 +57,9 @@ export async function chooseTheme(page: Page, theme: "Light" | "Dark"): Promise<
 }
 
 export async function openUpload(scope: Locator): Promise<void> {
-  await scope.getByRole("button", { name: /^Upload(?: · \d+)?$/ }).click();
+  await scope.getByRole("button", { name: /^Upload(?: \(\d+\))?$/ }).click();
   await expect(scope.getByLabel("Choose files")).toBeFocused();
-  const controls = await scope.getByRole("button", { name: /^Upload(?: · \d+)?$/ }).getAttribute("aria-controls");
+  const controls = await scope.getByRole("button", { name: /^Upload(?: \(\d+\))?$/ }).getAttribute("aria-controls");
   expect(controls).toBeTruthy();
   await expect(scope.locator(`details[id="${controls}"]`)).toHaveAttribute("open", "");
 }

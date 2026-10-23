@@ -668,8 +668,8 @@ test("filters loaded users from the query string and keeps that choice in the ad
   expect(await screen.findByRole("cell", { name: "Bea" })).toBeTruthy();
   expect(screen.queryByRole("cell", { name: "Ada" })).toBeNull();
   expect((screen.getByLabelText("Filter users") as HTMLInputElement).value).toBe("bea");
-  expect(screen.getByText("Default order is Username.").textContent).toBe(
-    "Default order is Username.",
+  expect(screen.getByText("Default sort: username").textContent).toBe(
+    "Default sort: username",
   );
   expect(screen.queryByText("Only loaded rows")).toBeNull();
   expect(screen.getByRole("button", { name: "Create user" })).toBeTruthy();
@@ -925,8 +925,8 @@ test("turns user pages by 100 and keeps the filter, sort, and hash", async () =>
   expect(window.location.search).toContain("users=a&");
   expect(window.location.search).toContain("usersSort=created");
   expect(window.location.search).not.toContain("usersOffset");
-  const previous = screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement;
-  const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
+  const previous = screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement;
+  const next = screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement;
   expect(previous.disabled).toBe(true);
   expect(next.disabled).toBe(false);
 
@@ -939,8 +939,8 @@ test("turns user pages by 100 and keeps the filter, sort, and hash", async () =>
   expect(window.location.search).toContain("users=a&");
   expect(window.location.search).toContain("usersSort=created");
   expect(window.location.hash).toBe("#users/stay");
-  expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+  expect((screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
   expect(await screen.findByRole("cell", { name: "Ada" })).toBeTruthy();
   expect(window.location.search).not.toContain("usersOffset");
   expect(window.location.search).toContain("users=a&");
@@ -961,7 +961,7 @@ test("an unrecognized usersOffset stays on the first page and does not rewrite t
   expect(await screen.findByRole("cell", { name: "Ada" })).toBeTruthy();
   expect(window.location.search).toBe("?usersOffset=nope&users=ada");
   expect(window.location.hash).toBe("#users/stay");
-  expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(
+  expect((screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
 });
@@ -974,7 +974,7 @@ test("discloses page-local user filtering and keeps navigation for no matches", 
   fireEvent.change(screen.getByLabelText("Filter users"), { target: { value: "missing" } });
   expect(screen.getByText("No matches on this page.")).toBeTruthy();
   expect(screen.queryByText("There are no users. Create the first user.")).toBeNull();
-  expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "Next page" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 test("opens user creation and password reset on demand while retaining reset drafts", async () => {
@@ -1011,7 +1011,7 @@ test("an empty later user page does not claim the repository is empty", async ()
   renderUsers(false);
   expect(await screen.findByText("No matches on this page.")).toBeTruthy();
   expect(screen.queryByText("There are no users. Create the first user.")).toBeNull();
-  expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "Previous page" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
 

@@ -7,7 +7,7 @@ import { ConfirmDialog } from "./confirm";
 import { isGarageDown } from "./garageDown";
 import { useLocationHash, workersNodeId } from "./Nav";
 import { copy, fill, translate } from "./i18n";
-import { DataCell } from "./ui";
+import { DataCell, EmptyState, LoadingState, PageHeader } from "./ui";
 
 function unavailableMessage(): string {
   return copy("ui.workers.are.unavailable");
@@ -243,7 +243,7 @@ function WorkerVariable({ nodeId }: { nodeId: string }) {
               }}
             >
               {copy("ui.save.variable")}</Button>
-            <div className="ui-actions">
+            <div className="ui-dialog-actions">
               <Dialog.Close><Button type="button" size="2" variant="soft" color="gray" disabled={save.isPending || open}>{copy("ui.cancel")}</Button></Dialog.Close>
             </div>
           </div>
@@ -384,7 +384,7 @@ function NodeRepair({ nodeId }: { nodeId: string }) {
               }}
             >
               {copy("ui.start.repair")}</Button>
-            <div className="ui-actions">
+            <div className="ui-dialog-actions">
               <Dialog.Close><Button type="button" size="2" variant="soft" color="gray" disabled={repair.isPending || open}>{copy("ui.cancel")}</Button></Dialog.Close>
             </div>
           </div>
@@ -469,8 +469,9 @@ function WorkersList({ nodeId }: { nodeId: string }) {
 
   return (
     <section className="ui-page" aria-label={copy("nav.workers")} aria-busy={view.busy}>
-      <h2 className="text-lg font-semibold">{copy("nav.workers")}</h2>
-      <p className="ui-muted ui-identifier">{nodeId === "*" ? copy("operations.allNodes") : nodeId}</p>
+      <PageHeader title={copy("nav.workers")}>
+        <span className="ui-muted ui-identifier">{nodeId === "*" ? copy("operations.allNodes") : nodeId}</span>
+      </PageHeader>
       <div className="ui-toolbar text-sm">
         <label className="ui-checkbox-field">
           <Checkbox size="2"
@@ -493,7 +494,7 @@ function WorkersList({ nodeId }: { nodeId: string }) {
         </div>
       </details>
       {view.busy ? (
-        <div className="h-16 border border-line" role="status" aria-label={copy("ui.loading.workers")}>{copy("ui.loading.workers")}</div>
+        <LoadingState label={copy("ui.loading.workers")} />
       ) : null}
       {view.refreshing ? <p>{copy("ui.refreshing.workers")}</p> : null}
       {view.failure && !isGarageDown(view.failure) ? (
@@ -509,7 +510,7 @@ function WorkersList({ nodeId }: { nodeId: string }) {
             {copy("ui.retry")}</Button>
         </>
       ) : null}
-      {view.empty ? <p>{copy("ui.there.are.no.workers")}</p> : null}
+      {view.empty ? <EmptyState title={copy("ui.there.are.no.workers")} /> : null}
       {groups.map((group) =>
         group.rows.length === 0 ? null : (
           <div key={group.nodeId} className="grid gap-2">
@@ -575,7 +576,7 @@ export function Workers() {
   if (nodeId === null) {
     return (
       <section className="ui-page" aria-label={copy("nav.workers")} aria-busy={false}>
-        <h2 className="text-lg font-semibold">{copy("nav.workers")}</h2>
+        <PageHeader title={copy("nav.workers")} />
         <OperationNodeSelection route="workers" all />
       </section>
     );

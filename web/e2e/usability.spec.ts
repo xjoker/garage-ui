@@ -248,7 +248,7 @@ for (const width of [360, 1280]) for (const theme of ["Light", "Dark"] as const)
       const secretDialog = page.getByRole("dialog");
       await expect(secretDialog.getByLabel("Secret access key", { exact: true })).toHaveAttribute("type", "password");
       await expect(secretDialog.getByRole("button", { name: "Copy secret", exact: true })).toBeVisible();
-      await secretDialog.getByRole("button", { name: "I have saved it", exact: true }).click();
+      await secretDialog.getByRole("button", { name: "Done", exact: true }).click();
       await expect(secretDialog).toHaveCount(0);
       const danger = panel.getByRole("button", { name: /^Delete key/ });
       await expect(danger).toBeVisible();
