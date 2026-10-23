@@ -6,7 +6,7 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
-## 20261023.3
+## 20261023.4
 
 - Build and publish official releases through GitHub Actions, after frontend and Rust tests, release checks, and source/history secret scanning pass.
 - Keep local environment files and AI configuration out of Git and Docker build contexts, and narrowly exclude a literal regression-test URL from credential detection.

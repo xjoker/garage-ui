@@ -29,7 +29,7 @@ The reports retain exact build identities, Garage versions, test results, and li
 The [Garage release support assessment](garage-support.md#understand-the-feature-boundary) records source-confirmed boundaries:
 
 - Layout preview runs and gates Apply, but discards its successful response body. Preview text/computation statistics, metadata/data partition details, and full node statistics remain undisplayed.
-- About reports application and Garage versions and build identity. Internal list probes are not displayed; comprehensive feature detection remains incomplete.
+- About reports application and Garage versions and available bucket/key detail capabilities. Unknown or absent list probes are hidden; comprehensive feature detection remains incomplete.
 - The website settings editor and update route required by [section 5.17](features-data.md#517-website-access) remain unscheduled. Linking an already configured public website does not implement that editor.
 - Object copy, multipart-copy/part-list controls, form POST upload, and SSE-C key-management controls are absent. Their absence does not add them to the accepted delivery scope.
 - Development Garage list scopes, pagination, resync display, and S3 region discovery require separate future compatibility work. Neither inspected development branch has runtime acceptance; the stable support boundary remains unchanged.

@@ -118,7 +118,7 @@ jobs:
       - name: Scan source and history for secrets
         run: scripts/secret-scan.sh
       - name: Verify release script contracts
-        run: scripts/check-release-version.sh
+        run: sh scripts/check-release-version.sh
       - name: Install frontend dependencies
         working-directory: web
         run: bun install --frozen-lockfile

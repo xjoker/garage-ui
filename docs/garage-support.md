@@ -48,7 +48,7 @@ The [proxy allowlist](../crates/garage-ui/src/proxy.rs) has 50 entries: all 46 s
 | Area | Implemented in project source | Current boundary |
 |---|---|---|
 | Stable Admin transport | Typed handlers, generated types and all stable v2 method pairs | Coverage does not mean every field has a UI or every operation passed runtime acceptance. |
-| Cluster and layout | Health, nodes, staged layout, workers, block errors, tokens and repair paths | Preview discards the response body. Layout preview text/computation statistics, metadata/data partition information and full node statistics are not displayed. About exposes versions and two list probes, not comprehensive feature detection. |
+| Cluster and layout | Health, nodes, staged layout, workers, block errors, tokens and repair paths | Preview discards the response body. Layout preview text/computation statistics, metadata/data partition information and full node statistics are not displayed. About shows versions and available bucket/key detail capabilities; unknown or absent list probes are hidden. It does not expose comprehensive feature detection. |
 | Buckets, keys and access | CRUD, aliases, quotas, grants/revokes, expiration, key import, CORS/lifecycle, cleanup and inspection | Runtime evidence remains limited to recorded flows. |
 | Object work | Browsing, metadata, upload/multipart, reads/ranges, deletion, presigned sharing and ZIP | No controls for CopyObject, UploadPartCopy, ListParts, form POST uploads or SSE-C key management. Garage supports SSE-C. |
 | Website settings | Existing configured public websites can be linked when sharing | The dedicated editor/update route in [specification section 5.17](features-data.md#517-website-access) is explicitly unscheduled. |
