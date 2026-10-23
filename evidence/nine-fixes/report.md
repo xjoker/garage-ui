@@ -1,5 +1,7 @@
 # Nine audit fixes
 
+> Historical verification for the source revisions named below. For current deployment and release instructions, see [Contributing](../../CONTRIBUTING.md) and the [operator guide](../../docs/wiki/Home.md).
+
 Source fixes through `e4d8919fd0a8d5fc8e9b687e522931bf034632fe` address the nine recommendations recorded in the [Radix migration report](../radix-migration/report.md). The source/native/browser validation below used product version `20261014.2`, with the native binary reporting commit `b5b36810395bb65dc1064f32c74902b141d644aa`. Subsequent changes at `c8ba933` affect the validation harness. Exact versioned Linux artifact identities, checksums, and container runtime results are recorded separately in the matching release notes through the `scripts/release.sh` workflow; this report does not establish those artifact gates or a published release.
 
 ## Corrected behavior
@@ -14,7 +16,7 @@ Source fixes through `e4d8919fd0a8d5fc8e9b687e522931bf034632fe` address the nine
 | B7: stale catalog pagination boundaries | Successful bucket/key catalog mutations invalidate cursors. Refreshing or changing a boundary discards later offsets; older in-flight responses cannot restore invalidated offsets. | [Proxy](../../crates/garage-ui/src/proxy.rs), [Troubleshooting](../../docs/wiki/Troubleshooting.md#preview-download-share-or-upload-fails) |
 | B8: formula-leading audit CSV cells | CSV adds a single quote to dangerous text prefixes, including full-width formula markers and leading whitespace/control cases. Stored text and JSON remain unchanged. Spreadsheet save/reopen transformations are outside this guarantee. | [Audit export](../../crates/garage-ui/src/api/audit.rs), [Export guide](../../docs/wiki/Audit.md#export-filtered-records) |
 | B9: audit pagination/export buffer all matches | SQL selects only `limit + 1` list rows. Export reads 128-row batches, emits frames up to 64 KiB, and fixes its upper audit ID at export start. Dropping the body drops pending work; no background export task is spawned. This bounds server buffering, not the browser's downloaded-file buffer. | [Audit export](../../crates/garage-ui/src/api/audit.rs), [Export guide](../../docs/wiki/Audit.md#export-filtered-records) |
-| F12: artifacts lack source identity | Official build/release scripts pass the full `GIT_COMMIT`. Release checks compare exact final-image `/healthz` version and `commit`. Compose accepts the optional build input and defaults to `unknown`; invalid commit inputs fail the build. | [Build input](../../crates/garage-ui/build.rs), [Deployment](../../docs/wiki/Deployment.md#verify-the-deployed-source-revision) |
+| F12: artifacts lack source identity | Official build/release scripts pass the full `GIT_COMMIT`. Release checks compare exact final-image `/healthz` version and `commit`. Compose accepts the optional build input and defaults to `unknown`; invalid commit inputs fail the build. | [Build input](../../crates/garage-ui/build.rs), [Deployment](../../docs/wiki/Deployment.md#verify-the-deployed-version) |
 
 ## Focused regression evidence
 
@@ -96,7 +98,7 @@ do
 done
 ```
 
-For broader reproduction, follow [Contributing](../../CONTRIBUTING.md) to build the frontend and debug binary required by the Playwright configuration, then run the Garage v2.3.0/v2.4.1 browser suites against its documented disposable fixtures. Retain results for that exact binary. Verify exact deployed artifact identity with the [deployment procedure](../../docs/wiki/Deployment.md#verify-the-deployed-source-revision); the lightweight build-identity check alone does not validate a container or release binary.
+For broader reproduction, follow [Contributing](../../CONTRIBUTING.md) to build the frontend and debug binary required by the Playwright configuration, then run the Garage v2.3.0/v2.4.1 browser suites against its documented disposable fixtures. Retain results for that exact binary. Verify exact deployed artifact identity with the [deployment procedure](../../docs/wiki/Deployment.md#verify-the-deployed-version); the lightweight build-identity check alone does not validate a container or release binary.
 
 To reproduce the controlled same-process discovery recovery with the validation harness at `c8ba933`, build the debug binary with web dependencies and Chromium installed, arrange the disposable Garage v2.4.1 fixture described in Contributing, and run from the repository root:
 

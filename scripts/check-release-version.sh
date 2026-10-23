@@ -353,7 +353,15 @@ with tempfile.TemporaryDirectory() as temp:
     plain = "ERROR: failed to fetch anonymous token: unexpected status: 503 Service Unavailable sha256:" + "a" * 64
     assert alias_module.summarize(plain) == plain, alias_module.summarize(plain)
 
-    assert "needs: gate" in workflow, "release must not run before the tag gate"
+    assert "needs: [gate, verify]" in workflow, "image builds must wait for release verification"
+    for command in (
+        "scripts/secret-scan.sh",
+        "bun run lint",
+        "bun run typecheck",
+        "bun run test",
+        "cargo test --workspace --locked",
+    ):
+        assert command in workflow, f"release verification must run {command}"
     assert "pull_request:" not in workflow and "branches:" not in workflow, "ordinary pushes and PRs must not build"
 print("Release tag gate checks passed")
 PY

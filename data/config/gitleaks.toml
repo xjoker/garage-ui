@@ -8,6 +8,14 @@ useDefault = true
 description = "Build outputs and dependency trees"
 paths = ['''(^|/)(\.git|target|node_modules)(/|$)''', '''(^|/)web/dist(/|$)''']
 
+[[allowlists]]
+description = "Literal object-key URL in the thumbnail regression fixture"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''(^|/)crates/garage-ui/src/api/tests/objects\.rs$''']
+regexTarget = "line"
+regexes = ['''^\s*"/api/buckets/bkt-1/object\?key=dir/thumbnail",\s*$''']
+
 # Preserve detection of incomplete private-key blocks as well as complete default-rule matches.
 [[rules]]
 id = "private-key-marker"

@@ -1,9 +1,5 @@
 # Product
 
-## Register
-
-product
-
 ## Users and purpose
 
 Garage cluster administrators, read-only operators, and tenant users manage storage, access, and cluster operations in a self-hosted browser console. The Rust server embeds the React interface. See [Scope](docs/scope.md).
@@ -15,6 +11,9 @@ Practical, clear, restrained. Preserve the existing Garage identity, system typo
 ## Design principles
 
 - Make navigation groups and the current location distinct.
+- Use Radix color scales, 0.5 px borders, and at most four text sizes starting at 12 px.
+- Keep copy concise; retain standard technical terms and units such as GB and TB. Do not use middle dots as text separators.
+- Align controls and labels, use restrained corner radii, and minimize motion and decorative shadows.
 - Show the target, consequence, pending state, and result of an operation.
 - Keep routine actions easy to reach and retain graded confirmation for destructive actions.
 - Explain errors with a useful next action; preserve input on failure.

@@ -16,15 +16,15 @@ Reports describe particular source revisions and environments, not every later c
 - [Garage release support check](garage-support.md): upstream version/support evidence, separate from application verification.
 - [Nine audit fixes](../evidence/nine-fixes/report.md): corrected behavior, focused regressions, source/native/browser results, and reproduction commands.
 - [Radix migration](../evidence/radix-migration/report.md): the earlier UI migration checkpoint, container and browser results, and their limits.
-- [Screenshot metadata](images/README.md): build identity, fixture contents, and viewport sizes for the README images.
+- [Screenshot guidelines](images/README.md): current-build captures, fixture hygiene, and privacy requirements.
 
 See the [delivery status and roadmap](roadmap.md) for implemented areas and deferred work, [Contributing](../CONTRIBUTING.md) for current build/check entrypoints, and [Releases](https://github.com/xjoker/garage-ui/releases) for published artifacts. A draft or an evidence report does not establish a published release.
 
 ## Working specifications
 
-This directory is the breakdown of [`DEV-GUIDE.md`](../DEV-GUIDE.md) at the repository root. It is for implementation, parallel development, and acceptance. These chapters retain the original requirement and acceptance semantics, with superseding decisions applied. When the two sides conflict, this directory wins.
+These chapters organize the product requirements and acceptance targets. [DEV-GUIDE.md](../DEV-GUIDE.md) is the current contributor entry point; the operator Wiki describes delivered behavior.
 
-For local development and AI-assisted contributions, see [Contributing](../CONTRIBUTING.md). These chapters define requirements and acceptance targets, not a completed-feature checklist or a verification receipt. Consult the relevant implementation and record results for the exact source commit. CI builds artifacts only for validated release tags; tests and audits run locally before release. A build result alone is not evidence that the test requirements below were exercised.
+For local development and AI-assisted contributions, see [Contributing](../CONTRIBUTING.md). These chapters define requirements and acceptance targets, not a completed-feature checklist or a verification receipt. Consult the relevant implementation and record results for the exact source commit. CI runs frontend and Rust tests, release validation, and secret scanning before building and publishing validated release tags. A build result alone is not evidence that the test requirements below were exercised.
 
 Endpoint names and field names still follow the Admin API v2 definition in the Garage source. This directory contains no implementation code.
 
@@ -40,11 +40,11 @@ Endpoint names and field names still follow the Admin API v2 definition in the G
 | The admin UI itself supports containerized deployment (`linux/amd64` and `linux/arm64`) | [decisions.md](decisions.md), [engineering.md](engineering.md), [scope.md](scope.md) |
 | The frontend drops daisyUI and zustand | [decisions.md](decisions.md), [engineering.md](engineering.md) |
 
-The UI libraries are React 18, TypeScript, Vite, Radix Themes 3.3.0, `radix-ui` 1.8.1, TanStack Query, react-hook-form, zod, and Tailwind. Bun replaces the Node / pnpm toolchain layer. It is currently pinned at 1.4.2.
+The UI libraries are React 18, TypeScript, Vite, Radix Themes 3.3.0, `radix-ui` 1.8.1, TanStack Query, react-hook-form, zod, and Tailwind. Bun runs the frontend toolchain and is pinned at 1.4.2.
 
 ## Reading order
 
-1. [decisions.md](decisions.md). What changed relative to the original draft.
+1. [decisions.md](decisions.md). Current implementation and release decisions.
 2. [scope.md](scope.md). Goals, scope, and the minimum version.
 3. [garage-api.md](garage-api.md). Versions, the capability probe, and the 46 endpoints.
 4. [security.md](security.md). Security requirements and the role matrix.
@@ -53,4 +53,4 @@ The UI libraries are React 18, TypeScript, Vite, Radix Themes 3.3.0, `radix-ui` 
 7. [engineering.md](engineering.md). Non-functional and engineering requirements (already rewritten for Rust and Bun).
 8. [roadmap.md](roadmap.md). Delivery status, outstanding acceptance, and deferred scope.
 
-Section numbers follow the original draft, so the two can be compared. For example, authentication that is safe by default is still 3.1, and buckets are still 5.1.
+Section numbers remain stable for links from source, tests, and contributor discussions.

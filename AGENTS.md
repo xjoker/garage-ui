@@ -8,4 +8,6 @@ Do not add new Chinese text outside these three exceptions: `README.zh-CN.md`, a
 
 ## CI
 
-The GitHub Actions workflow is disabled on GitHub until development is finished. Do not re-enable it.
+GitHub Actions builds and publishes official releases from validated version tags. Keep the
+release workflow enabled. Local builds are for development verification only; official release
+images and release assets must be produced by GitHub Actions.

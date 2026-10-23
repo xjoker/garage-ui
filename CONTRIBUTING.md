@@ -1,10 +1,10 @@
 # Contributing
 
-CI builds and publishes release artifacts only for valid version tags. Ordinary branch pushes and pull requests do not build or run tests. Run the relevant checks locally before proposing changes or pushing a release tag; a successful artifact build is not test evidence. Read the [development and release identity rules](docs/engineering.md#79-release-and-images) before preparing artifacts; verification applies to the recorded source commit.
+GitHub Actions builds and publishes release artifacts for valid version tags. Run the relevant checks locally before proposing changes or pushing a release tag; a successful artifact build is not test evidence. Read the [development and release identity rules](docs/engineering.md#79-release-and-images) before preparing a release; verification applies to the recorded source commit.
 
 ## Read before changing code
 
-Read the applicable [repository instructions](AGENTS.md), the [working spec](docs/README.md), and the relevant source and tests. [DEV-GUIDE.md](DEV-GUIDE.md) is the historical requirements draft, with superseded Go/pnpm instructions. Honor generated-file notices and update their source rather than editing managed instruction files directly. The working spec and [decisions](docs/decisions.md) describe the current Rust/Bun stack. Specs contain acceptance targets, so confirm a feature in source before describing it as implemented.
+Read the applicable [repository instructions](AGENTS.md), the [development guide](DEV-GUIDE.md), and the relevant source and tests. Honor generated-file notices and update their source rather than editing managed instruction files directly. The working spec and [decisions](docs/decisions.md) describe the current Rust/Bun stack. Specs contain acceptance targets, so confirm a feature in source before describing it as implemented.
 
 Use English for code comments, errors, UI copy, documentation, commits, and pull requests. Simplified Chinese belongs only in three places: the existing UI locale catalog, deliberate non-ASCII test fixtures, and `README.zh-CN.md`, the only Chinese documentation, a companion translation of `README.md` that you update whenever `README.md` changes.
 
@@ -20,7 +20,7 @@ Use English for code comments, errors, UI copy, documentation, commits, and pull
 | [docs](docs/README.md), [evidence](evidence) | Working spec, operator Wiki, delivery status, and revision-specific verification reports |
 | [VERSION](VERSION), [CHANGELOG.md](CHANGELOG.md) | Release identity and historical change notes |
 
-Use [scripts/build.sh](scripts/build.sh) for host or local image builds and [scripts/check-build-identity.sh](scripts/check-build-identity.sh) for the focused source-identity check. [scripts/release.sh](scripts/release.sh) packages prebuilt release images; read [release requirements](docs/engineering.md#79-release-and-images) before using it. To prepare local release artifacts, run `BUILD_VERSION=$(cat VERSION) scripts/build.sh --images`, then `scripts/release.sh <output-directory>`. Publishing requires separate maintainer authorization.
+Use [scripts/build.sh](scripts/build.sh) for host or local image builds and [scripts/check-build-identity.sh](scripts/check-build-identity.sh) for the focused source-identity check. [scripts/release.sh](scripts/release.sh) is useful for local release diagnosis. Published artifacts are built and released by GitHub Actions after a matching version tag is pushed.
 
 Focused tooling checks run from the repository root:
 
@@ -162,7 +162,7 @@ git tag "$version"
 git push origin "$version"
 ```
 
-Only this tag push starts CI. The gate validates the date, sequence, manifest versions, and source identity before building. CI uploads the images, binaries, deployment files, SBOM, and checksums, verifies public image access, and publishes the release. The GHCR package must be public; this is a one-time owner setting independent of the source repository's visibility. Existing published releases are immutable. A failed run can be retried while its release is still a draft.
+Only this tag push starts the release workflow. The gate validates the date, sequence, manifest versions, and source identity. Frontend lint/type/unit/build checks, Rust tests with a real Garage fixture, release-script checks, and source/history secret scans must pass before image builds. CI uploads the images, binaries, deployment files, SBOM, and checksums, verifies public image access, and publishes the release. The GHCR package must be public; this is a one-time owner setting independent of the source repository's visibility. Existing published releases are immutable. A failed run can be retried while its release is still a draft.
 
 ## Submit a focused contribution
 

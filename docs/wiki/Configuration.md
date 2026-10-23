@@ -76,4 +76,4 @@ Audit cleanup runs at startup and then every 86400 seconds, deleting records old
 
 Authentication is always on. Merely defining `AUTH_DISABLED`, `DISABLE_AUTH`, or `GARAGE_UI_NO_AUTH` stops startup, even with a false-looking value.
 
-Implementation reference: [configuration loader](https://github.com/xjoker/garage-ui/blob/dev/crates/garage-ui/src/config.rs).
+Implementation reference: [configuration loader](https://github.com/xjoker/garage-ui/blob/main/crates/garage-ui/src/config.rs).

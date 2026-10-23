@@ -79,8 +79,70 @@ jobs:
               output.write(f"version={version}\ncommit={commit}\n")
           PY_RELEASE_GATE
 
-  build-images:
+  verify:
     needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm validated source identity
+        env:
+          BUILD_VERSION: ${{ needs.gate.outputs.version }}
+          GIT_COMMIT: ${{ needs.gate.outputs.commit }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GIT_COMMIT"
+          test "$(cat VERSION)" = "$BUILD_VERSION"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - uses: dtolnay/rust-toolchain@fb523f40495206854c36b250850817ae0f83e3d1 # 1.99.0
+      - name: Install checksum-verified Gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.0
+        run: |
+          download="$RUNNER_TEMP/gitleaks-download"
+          mkdir -p "$download"
+          cd "$download"
+          curl --fail --location --show-error --silent --remote-name \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          curl --fail --location --show-error --silent --remote-name \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          grep "  gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum --check --strict
+          tar --extract --gzip --file "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          install -m 0755 gitleaks "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Scan source and history for secrets
+        run: scripts/secret-scan.sh
+      - name: Verify release script contracts
+        run: scripts/check-release-version.sh
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+      - name: Lint frontend
+        working-directory: web
+        run: bun run lint
+      - name: Type-check frontend
+        working-directory: web
+        run: bun run typecheck
+      - name: Test frontend
+        working-directory: web
+        run: bun run test
+      - name: Build embedded frontend for Rust tests
+        working-directory: web
+        run: bun run build
+      - name: Prepare Garage integration fixture image
+        run: docker pull dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020
+      - name: Tag Garage integration fixture image
+        run: docker tag dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020 dxflrs/garage:v2.4.1
+      - name: Test Rust workspace
+        run: cargo test --workspace --locked
+
+  build-images:
+    needs: [gate, verify]
     strategy:
       fail-fast: false
       matrix:

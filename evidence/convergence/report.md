@@ -1,5 +1,7 @@
 # Remaining-improvement convergence
 
+> Historical verification for the source revisions named below. For current deployment and release instructions, see [Contributing](../../CONTRIBUTING.md) and the [operator guide](../../docs/wiki/Home.md).
+
 This checkpoint closes the recorded documentation, interface, verification-harness, secret-scanning, and build-identity improvements relative to formal baseline `6b621b1e13ddba0b0a83c4068138686c49fd28dd`. Verification covers source through `84a24711d8c8c57854c7878dab89fa1d2cca80ed`. It does not establish a published release, a single clean full Rust/browser run, or completion of every working-spec acceptance criterion.
 
 ## Scope and source identities
@@ -23,9 +25,9 @@ Later changes between these runtime builds and the source/test checkpoint affect
 | Audit controls and download | A keyboard-operable, initially collapsed Filters disclosure retains values and displays the active count. UTC date inputs stack on narrow screens. “Target” explains the existing exact-match filter. Export remains visible when filters are collapsed; it checks authorization with `HEAD`, then starts a native filtered CSV download without creating a full JavaScript Blob. A rejected preflight displays export failure. [Audit](../../web/src/Audit.tsx), [operator guide](../../docs/wiki/Audit.md) |
 | Reproducible fixtures and browser choice | The browser runner owns a disposable Garage container, volume, random Admin/S3 ports, and fresh UI state. Browser selection reaches Playwright workers. The Rust CORS test owns its Garage fixture instead of borrowing a fixed container. [Runner](../../scripts/e2e-check.sh), [browser configuration](../../web/e2e/garage-target.ts), [CORS test](../../crates/garage-ui/src/api/tests/cors_preflight.rs) |
 | Secret scanning | Checksum-pinned Gitleaks 8.30.0 scans the worktree and history reachable from all local refs, with redacted output and synthetic detection regressions. A clean scan is bounded by its rules and allowlist. [Scanner](../../scripts/secret-scan.sh), [configuration](../../data/config/gitleaks.toml) |
-| Build and distribution identity | Unassigned local builds use `<VERSION>-local`; explicit validated `BUILD_VERSION` reaches binary/image builds. The future CI development identity uses the original workflow-run creation date in UTC plus its workflow-wide `run_number`: `YYYYMMDD.N-dev`. Reruns retain the identity; N does not reset daily. The manual workflow only creates new unpublished drafts. [Build script](../../scripts/build.sh), [build metadata](../../crates/garage-ui/build.rs), [CI](../../.github/workflows/ci.yml), [manual release workflow](../../.github/workflows/release.yml) |
+| Build and distribution identity | Unassigned local builds use `<VERSION>-local`; explicit validated `BUILD_VERSION` reaches binary/image builds. The future CI development identity uses the original workflow-run creation date in UTC plus its workflow-wide `run_number`: `YYYYMMDD.N-dev`. Reruns retain the identity; N does not reset daily. The manual workflow only creates new unpublished drafts. [Build script](../../scripts/build.sh), [build metadata](../../crates/garage-ui/build.rs), [CI](../../.github/workflows/ci.yml), historical manual release workflow (retired) |
 
-CI remains disabled on GitHub. CI identity behavior was checked with offline metadata/command fixtures; no actual CI development number was allocated and no remote workflow run or publication is claimed.
+At this checkpoint, CI was disabled on GitHub. CI identity behavior was checked with offline metadata/command fixtures; no actual CI development number was allocated and no remote workflow run or publication is claimed.
 
 ## Verification results
 
@@ -87,7 +89,6 @@ From the repository root:
 
 ```sh
 scripts/check-build-identity.sh
-scripts/check-dev-version.sh
 bun scripts/check-browser-projects.ts
 scripts/check-secret-scan.sh
 scripts/secret-scan.sh

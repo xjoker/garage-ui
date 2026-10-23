@@ -15,8 +15,8 @@ Use **Filter keys** and **Sort keys** to find loaded rows. Use **Load more** whe
 ## Grant bucket access
 
 1. Open the bucket's **Permissions** tab.
-2. Select **Access key** and enable the required **Read**, **Write**, and **Owner** grants.
-3. Choose **Grant** and wait for the success message.
+2. Choose an existing key by name and ID; use **Load more** when needed. Enable the required **Read**, **Write**, and **Owner** grants.
+3. Choose **Grant**. On success, the dialog closes and the grants refresh.
 4. Check the key's **Buckets** tab to see the resulting grants and aliases.
 
 **Read** permits S3 reads; **Write** permits S3 writes. **Owner** is Garage's bucket ownership permission. These are Garage permissions, separate from a UI viewer's Download/Share flags. Use the smallest set your application requires.
@@ -33,7 +33,7 @@ In **Danger zone**, choose **Delete key** and confirm its ID. Clients using the 
 
 The UI server signs S3 operations; it does not send the Garage admin token to the browser. Without configured S3 credentials or a saved bucket selection, it automatically finds an existing, non-expired key with read and write access to the bucket. Candidates are checked in access key ID order. No per-bucket selection is required, and discovery never creates keys or changes Garage permissions.
 
-If no usable key exists, grant an existing key read and write access and retry. An administrator can still select **Bucket key → Use this key** explicitly. The UI stores that selected key ID in its database and obtains its secret from Garage when needed.
+If no usable key exists, grant an existing key read and write access and retry. The missing-key action keeps the current bucket while creating a new key, then returns to its permissions. An administrator can still select **Bucket key → Use this key** explicitly. The UI stores that selected key ID in its database and obtains its secret from Garage when needed.
 
 A configured project-wide S3 key takes priority over the per-bucket selection. Ensure the selected or project key has the appropriate bucket grants. A read-only key can support reads but cannot upload or delete objects. UI administrator permission does not bypass Garage's S3 grant checks.
 

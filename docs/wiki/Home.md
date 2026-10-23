@@ -6,7 +6,7 @@ Garage UI is an unofficial browser console for Garage, the S3-compatible object 
 
 The React interface is bundled into the Rust server. A production deployment serves the UI and API from one process and port; it needs neither a separate frontend service nor a browser CDN.
 
-Connect to an existing Garage or start Garage and the UI together with the [Docker Compose quick start](https://github.com/xjoker/garage-ui/blob/dev/README.md#quick-start-docker-compose). [Releases](https://github.com/xjoker/garage-ui/releases) provide ready-to-run images, Linux binaries, and deployment files; users do not need to build from source. An unpublished draft has no public downloads. Garage **v2.3.0 or newer** is required for writes. Compatibility has been exercised with v2.3.0 and v2.4.1. The [Garage release support assessment](https://github.com/xjoker/garage-ui/blob/dev/docs/garage-support.md) records the exact stable API match, current UI gaps, vendor limits, and verification boundary; newer releases require separate validation.
+Connect to an existing Garage or start Garage and the UI together with the [Docker Compose example](https://github.com/xjoker/garage-ui/blob/main/README.md#docker-compose). [Releases](https://github.com/xjoker/garage-ui/releases) provide ready-to-run images, Linux binaries, and deployment files; users do not need to build from source. An unpublished draft has no public downloads. Garage **v2.3.0 or newer** is required for writes. Compatibility has been exercised with v2.3.0 and v2.4.1. The [Garage release support assessment](https://github.com/xjoker/garage-ui/blob/main/docs/garage-support.md) records the exact stable API match, current UI gaps, vendor limits, and verification boundary; newer releases require separate validation.
 
 ## Start here
 
@@ -36,6 +36,6 @@ If someone has already deployed the UI, ask them for its address and a local UI 
 
 Garage holds objects, buckets, S3 keys, Garage admin tokens, and cluster metadata. Garage UI has its own SQLite database for UI users, sessions, audit records, ZIP download tokens, and selected bucket-key bindings. Preserve the UI data directory as well as your independent Garage backups. See [Deployment](Deployment.md#back-up-and-restore-ui-state).
 
-This guide describes implemented behavior. The repository's [working specifications](https://github.com/xjoker/garage-ui/tree/dev/docs) describe requirements and acceptance targets; they are not a completed-feature checklist.
+This guide describes implemented behavior. The repository's [working specifications](https://github.com/xjoker/garage-ui/tree/main/docs) describe requirements and acceptance targets; they are not a completed-feature checklist.
 
-For implementation status and verification reports, use the repository [documentation index](https://github.com/xjoker/garage-ui/blob/dev/docs/README.md) and [delivery roadmap](https://github.com/xjoker/garage-ui/blob/dev/docs/roadmap.md). For local development and checks, use [Contributing](https://github.com/xjoker/garage-ui/blob/dev/CONTRIBUTING.md).
+For implementation status and verification reports, use the repository [documentation index](https://github.com/xjoker/garage-ui/blob/main/docs/README.md) and [delivery roadmap](https://github.com/xjoker/garage-ui/blob/main/docs/roadmap.md). For local development and checks, use [Contributing](https://github.com/xjoker/garage-ui/blob/main/CONTRIBUTING.md).

@@ -1,137 +1,41 @@
-# Decisions already absorbed
+# Implementation decisions
 
-Date: 2026-10-10. Decided by: the maintainer of this project. The text below writes these decisions into the working spec. Chapter 7 of the original draft, Go / Node / pnpm, is no longer the current technology stack.
+## Runtime and storage
 
-## The backend is written in Rust
+Garage UI is one Rust service with an embedded React interface. Runtime accounts, sessions, audit records, selected bucket keys, and the session key live in its dedicated data directory; Garage stores the actual objects and cluster state.
 
-The project foundation is written in Rust. The deliverable is still one binary with the frontend single-page application embedded in it.
+The current stack is defined by [Cargo.toml](../crates/garage-ui/Cargo.toml), [Cargo.lock](../Cargo.lock), [web/package.json](../web/package.json), and [web/bun.lock](../web/bun.lock). Do not treat older dependency snapshots as installation instructions.
 
-The engineering clauses rewritten because of this are in [engineering.md](engineering.md):
+- Rust 1.99.0 is pinned in `rust-toolchain.toml`.
+- Tokio, axum, and Hyper serve the HTTP API. Reqwest and the AWS S3 SDK handle outgoing Garage requests through rustls.
+- SQLx uses bundled SQLite. Account passwords use bcrypt; session cookies are stored as digests.
+- RustEmbed includes the frontend in release binaries. JSON tracing goes to stdout/stderr.
+- Linux release binaries target musl on amd64 and arm64. The runtime image is distroless and runs as UID/GID 65532.
 
-- Formatting, static checks, tests, coverage, and vulnerability scanning move to the Rust toolchain.
-- The S3 client is the official `aws-sdk-s3` (AWS SDK for Rust). That SDK's documentation requires an async runtime. The official examples use tokio.
-- The password algorithm is still bcrypt.
-- The runtime image is still the nonroot variant of distroless static. The binary is statically linked. The target machine does not have a C runtime or libsqlite preinstalled.
-- `gofmt`, `go vet`, `staticcheck`, `go test -race`, `govulncheck`, and Go type generation from the original draft are no longer gates.
+## Frontend
 
-Features, security, correctness, API paths, and acceptance criteria are not relaxed because the language changed.
+Bun 1.4.2 installs dependencies from the frozen lockfile and runs Vite, TypeScript, ESLint, and Vitest. React 18, Radix Themes and `radix-ui` provide controls; TanStack Query manages server data, and react-hook-form with zod validates forms. Theme and navigation state stay in components. File inputs remain native.
 
-## The frontend toolchain is Bun
+Use the existing Radix color scales, typography, and shared controls. The interface supports light, dark, and system themes, English and Simplified Chinese, keyboard interaction, and narrow viewports. The frontend ships inside the Rust service and needs no separate runtime or browser CDN.
 
-Installing dependencies, running scripts, and pinning versions all use Bun.
+## Garage compatibility
 
-- Pin Bun to a specific version with the `packageManager` field in `package.json`.
-- The lockfile is `bun.lock`. CI uses `bun install --frozen-lockfile`.
-- Do not commit `.nvmrc`. Do not use pnpm. Build scripts do not use `latest`.
-- Block on high and above vulnerabilities in production dependencies with `bun audit --prod --audit-level=high`. Block on critical vulnerabilities in build-time dependencies the same way.
-- Vitest, Testing Library, and Playwright are still the test stack. Bun starts them.
+The supported stable baseline is Garage v2.3.0; compatibility is exercised with v2.3.0 and v2.4.1. Features unavailable in a connected version use capability checks. See the [support assessment](garage-support.md) for the exact boundary and dated upstream evidence.
 
-## Multiple agents in parallel
+Integration checks use disposable Garage containers and data. Application code never installs or upgrades an operator's Garage cluster. Compose examples can start a separate single-node Garage for evaluation.
 
-Multiple agents may develop in parallel.
+## Release versions
 
-How parallel work is closed:
+The root `VERSION` is the source of truth: `YYYYMMDD.N`, with `.1` for the first release that day and a daily sequence reset. Read the current date and existing tags before choosing a version. Cargo workspace/lockfile and the web manifest use the same value followed by `.0`; that suffix satisfies SemVer. Git tags, image tags, and GitHub release names have no `v` prefix. Helm's chart version remains SemVer, while `appVersion` and its image default follow `VERSION`.
 
-- Split tasks by the outstanding work in [roadmap.md](roadmap.md) and relevant working-spec section numbers. Tasks that change the same set of files do not run in parallel.
-- The main session closes full-suite tests and `git` commits. Agents working in parallel do not each run the full test suite, and they do not each run `git add`.
-- When the spec conflicts with the facts, stop and change the spec or ask. Do not change an acceptance criterion to make a test green.
-- For security, persistence, and deletion, the acceptance text in [security.md](security.md) and [correctness.md](correctness.md) is the authority.
+## Build and release identity
 
-## Garage in a local container
+Official releases are built and published by GitHub Actions from matching version tags. The workflow verifies frontend and Rust tests, release scripts, and source/history secrets before native amd64 and arm64 image builds. It validates image health identity, public registry access, and downloaded release checksums before completing publication.
 
-Garage may run in a container on this machine, for integration tests, E2E, and manual evaluation.
+Local builds default to `<VERSION>-local`. Ordinary branch pushes do not allocate a CI development version. `BUILD_VERSION` and `GIT_COMMIT` identify the validated release tag and exact source commit; `/healthz` exposes both. Published releases are immutable. Local scripts support development and diagnosis; they do not replace the Actions publication path.
 
-- The versions to cover are still Garage v2.3.x and v2.4.1. The compose example defaults to v2.4.1.
-- A container is only a dependency under test and an example deployment. This project still does not install a Garage node, upgrade one, or edit a Garage configuration file.
-- Examples and images do not contain a real secret, or a placeholder private key that could be used as a secret. A placeholder must be rejected by the startup check. The rule is 3.14 of [security.md](security.md).
+Artifacts include multi-architecture images, static Linux binaries, deployment files, an SPDX SBOM, and SHA-256 checksums. Signing and build-provenance attestations remain deferred; checksums verify integrity, not publisher identity.
 
-## Runtime technology stack
+## Concurrent contributions
 
-On 2026-10-10 the maintainer confirmed this. The maintainer's words were: "OK, agreed." Versions match the stable releases of that day. When writing `Cargo.toml`, pin the versions below. If a newer patch of the same major version already exists, use that newer patch on the first `cargo add`, and commit `Cargo.lock`. Do not use nightly. Do not use a major version that has not been released.
-
-Compiler and async runtime:
-
-- Rust 1.99.0 (2026-10-01). `rust-toolchain.toml` pins that version. Do not write a floating `stable`. A new stable and `cargo update` are bumped in the same change.
-- tokio 1.53.2, multi-thread runtime. Enable only the features that are used: `macros`, `rt-multi-thread`, `net`, `signal`, `time`, `io-util`, `sync`, `fs`.
-
-HTTP:
-
-- axum 0.8.9. Write route parameters as `/{param}`.
-- tower-http 0.7.1. If the first compile does not match axum's tower version, switch to tower-http 0.6.11 and edit this file.
-- axum-extra 0.12.6, for cookies and typed headers.
-- Do not pin hyper on its own, unless the build does not compile without that pin.
-- Explicit method plus path, middleware, streaming request bodies and response bodies, a header-read timeout, an idle timeout, and graceful shutdown. Upload, download, and ZIP have no total request timeout. The Admin API is not a wildcard reverse proxy.
-
-Data and outbound calls:
-
-- SQLx 0.9.0. Take the feature that bundles SQLite and links it statically. The name in the documentation is `sqlite`. If the 0.9 manifest writes it as `sqlite-bundled`, the bundled static build is what counts. Do not use `sqlite-unbundled`. Do not use `query!`, which requires `DATABASE_URL` at compile time, unless sqlx offline is configured first. A short query does not hold the runtime. Audit CSV export stays streaming.
-- Sessions and the user store use the same SQLite database. Write sessions with SQLx. Do not bring in a session framework.
-- Implement CSRF ourselves as the double-submit cookie in [security.md](security.md). Compare in constant time.
-- S3: aws-sdk-s3 1.152.0, rustls by default. aws-config 1.12.0, using `behavior-version-latest`.
-- Admin API: reqwest 0.13.5, with features `json` and rustls. Do not use native-tls.
-- Passwords: the bcrypt crate 0.19.3. The algorithm is still bcrypt. Starting with 0.19.2, the panic caused by a non-ASCII hash is fixed.
-- Frontend assets: rust-embed 8.13.0. A release build embeds the files. In development, read them from disk. The author is still Peter John. The repository is at pyrossh.dev.
-- serde 1.0.229 and serde_json 1.0.151. Stay on 1.0.
-- Logs: tracing 0.1.44 and tracing-subscriber 0.3.23. JSON goes to stdout/stderr.
-- Errors: anyhow 1.0.104. Not below 1.0.103. That release fixed the `Error::downcast_mut` issue.
-- Metrics: metrics 0.24.6 and metrics-exporter-prometheus 0.18.3. Do not add OpenTelemetry. Do not use tikv's `prometheus` crate.
-- Command line: clap 4.6.7 with derive. It covers `-health` and the offline admin commands in section 3.18 of [security.md](security.md).
-- Rate limiting: governor 0.10.4.
-- ZIP: `zip` 9.0.0 on crates.io. The repository is zip-rs/zip2. Path traversal during extraction is fixed starting in 2.3.0. Do not use the archived zip-rs/zip.
-- Thumbnails: image 0.25.10, bounded, and the image header is read first.
-
-Static linking:
-
-- Release targets: `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. `RUSTFLAGS` includes `+crt-static`.
-- Acceptance: on both architectures, `ldd` reports `not a dynamic executable`.
-- Cross-compile with a musl toolchain (cargo-zigbuild, or a musl build image that supports both amd64 and arm64 hosts). Do not use the host clang to link musl.
-- The build machine needs a C/C++ compiler. The bundled SQLite is C, and the rustls that aws-sdk uses by default pulls in aws-lc-rs. The runtime image does not contain, and does not depend on, system libsqlite, libssl, or glibc. TLS uses rustls.
-
-The frontend toolchain pins Bun 1.4.2. `packageManager` records that version. On 2026-10-10, 1.5 had not been released. Do not pin it ahead of that release.
-
-## Frontend UI
-
-On 2026-10-10 the maintainer confirmed this. The maintainer's words were: "Yes. Remove daisyUI and zustand. The simpler the frontend is, the more powerful it is."
-
-The subsequent Radix migration supersedes the earlier restriction on adding a UI library and on Tailwind-only styling.
-
-- UI libraries: React 18, TypeScript strict mode, Vite, Radix Themes 3.3.0, `radix-ui` 1.8.1, TanStack Query, react-hook-form + zod, and Tailwind. Do not use daisyUI or zustand.
-- Server data uses TanStack Query. Authentication forms use react-hook-form and zod. UI state such as the theme and navigation toggle lives in the component.
-- Shared controls use Radix and its theme tokens, with local CSS and Tailwind for layout. File uploads retain native file inputs. Light and dark themes still follow 5.35 of [features-ui.md](features-ui.md).
-- The frontend is still built into the same Rust binary. It is not deployed on its own.
-
-## Maintenance check
-
-On 2026-10-10 the crates named in this section were checked, along with the frontend libraries that remain in the spec: React, TypeScript, Vite, TanStack Query, react-hook-form, zod, Tailwind, Vitest, Testing Library, and Playwright. The check used the latest non-yanked version on crates.io or npm, whether the repository is archived, the most recent push, and whether RustSec marks the library as unmaintained.
-
-None of the chosen libraries has that mark. None of the chosen repositories is archived. The ones with a long gap between releases, whose repositories still have commits, are governor (released 2025-12-16, commit 2026-08-24), image (released 2026-03-10, commit 2026-09-15), and axum (released 2026-04-14, commit 2026-10-09). These three stay in the stack.
-
-React 18 is outside feature maintenance. The latest stable release is still 18.3.1 (2024-04-26). After React 19 was released, 18 kept only a security-fix policy, and no further 18 release has been published since. The spec continues to pin React 18.
-
-Transitive dependencies related to static linking and TLS are also maintained: hyper 1.12.0, rustls 0.23.45, aws-lc-rs 1.18.1, and libsqlite3-sys 0.38.2.
-
-## Containerized deployment of this project
-
-On 2026-10-10 the maintainer confirmed this. The maintainer's words were: "This project also needs to support containerized deployment." This is a release form for the admin UI itself. The Garage containers in the previous section only cover the cluster under test and the Garage in the example.
-
-- A multi-stage image. The build stage contains Rust 1.99.0, a C/C++ compiler, the musl toolchain from the previous section, and Bun 1.4.2. Bun appears only in the build stage.
-- The runtime stage uses the nonroot variant of distroless static: one statically linked binary, no shell, no Node, no Bun, and no system libsqlite, libssl, or glibc.
-- Default port 3909, changed with `PORT`. When `HOST` is not set inside the image, listen on `0.0.0.0`. The compose example writes the host port as `127.0.0.1:3909`. The data volume is `/data`. The health check uses the binary's `-health`. The acceptance text for listening and for the port mapping is 3.1 of [security.md](security.md).
-- CI builds `linux/amd64` and `linux/arm64`. Base images are pinned by digest.
-- The compose example may also start Garage v2.4.1, only for local evaluation. This project does not install, upgrade, or edit the configuration of a Garage node.
-
-## Version numbers are YYYYMMDD.N
-
-On 2026-10-13 the maintainer replaced semantic versions with `YYYYMMDD.N`. The maintainer uses that scheme for this project's versions.
-
-The first release on a calendar day is `.1`. Another release on the same day increments `N`. A new day starts again at `.1`. The only source is the `VERSION` file at the repository root. The Cargo workspace version and `web/package.json` `version` are `YYYYMMDD.N.0`, and the trailing `.0` exists only to satisfy the manifest format. Git tags and GitHub release names match `VERSION` exactly, with no `v` prefix. Before a release commit, run `date +%Y%m%d`, then `git tag -l '<that date>.*'` and `gh release list`. Do not increment from the previous version's date. Change `VERSION` only in a release commit. Ordinary commits on the dev branch do not change it.
-
-This rule is the application version. Helm's `Chart.yaml` `version` stays valid SemVer because Helm rejects other versions. The image tag follows `VERSION`.
-
-## Development build identity
-
-On 2026-10-15 development builds adopted `YYYYMMDD.N-dev`, assigned once by the identity job in the existing `.github/workflows/ci.yml` on a `dev` push. The UTC date is the current workflow run's original `created_at`, read through the workflow-runs API, and `N` is its `run_number`. This is a workflow-wide sequence, so it does not reset each day. Keep the canonical workflow filename; forks have an independent sequence and do not allocate canonical development versions. Reruns retain the original version and full commit, even across UTC midnight. `run_attempt` belongs only in the JSON build receipt and artifact name.
-
-All build jobs reuse the identity outputs as `BUILD_VERSION` and `GIT_COMMIT`; Docker receives both arguments and tags the image with that version. The binary embeds both values and exposes them through `/healthz`. Only the identity job has `actions: read` permission. This source change does not enable the workflow on GitHub.
-
-Formal releases retain `YYYYMMDD.N` from `VERSION`, with a daily sequence reset. Ordinary development changes neither `VERSION` nor manifest or lockfile version fields. `scripts/release.sh` explicitly selects the stable version. Unassigned local builds and other CI events use `<VERSION>-local`, which makes no CI sequence claim.
+Assign non-overlapping file ownership and coordinate shared ports, Garage fixtures, and test databases. The coordinating contributor stages, commits, and closes full-suite tests. Preserve other contributors' edits and keep personal paths, live credentials, and raw local receipts out of public changes. See [Contributing](../CONTRIBUTING.md) for commands and review requirements.

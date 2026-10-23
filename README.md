@@ -12,75 +12,15 @@ English | [简体中文](README.zh-CN.md)
 
 An unofficial web interface for [Garage](https://garagehq.deuxfleurs.fr/), the S3-compatible object store. Browse and upload files, manage access, and check cluster health. One container includes the server and web interface; no separate database is required.
 
-## Quick start: Docker Compose
+## Docker Compose
 
-Copy one of the examples below into `compose.yaml`. Use the published images directly; no repository checkout or build is needed.
-
-### Connect to an existing Garage
-
-Replace the Admin/S3 URLs, admin token, and region with your Garage settings:
+Save this as `compose.yaml`, replace the four Garage values, and run `docker compose up -d`. It uses the published image directly; no repository checkout, build, or `.env` file is required.
 
 ```yaml
 services:
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261023.1
+    image: ghcr.io/xjoker/garage-ui:20261023.3
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3909:3909"
-    environment:
-      GARAGE_ADMIN_URL: http://192.0.2.10:3903
-      GARAGE_ADMIN_TOKEN: replace-with-your-garage-admin-token
-      S3_ENDPOINT_URL: http://192.0.2.10:3900
-      S3_REGION: garage
-      COOKIE_SECURE: "false"
-    volumes:
-      - garage-ui-data:/data
-volumes:
-  garage-ui-data:
-```
-
-Use addresses reachable from the UI container. Its `localhost` is not your Garage server. If you replace the named data volume with a host directory, add the `garage-ui-init` service shown below and mount that same directory into both UI services. The admin token is separate from an S3 access key. See [container networking](docs/wiki/Deployment.md#reach-your-existing-garage) if Garage runs on the same host or another Docker network.
-
-### Run Garage and the UI together
-
-Place your `garage.toml` beside `compose.yaml`, then use:
-
-```yaml
-x-logging: &default-logging
-  driver: json-file
-  options:
-    max-size: "10m"
-    max-file: "3"
-
-services:
-  garage:
-    image: dxflrs/garage:v2.4.1
-    restart: unless-stopped
-    logging: *default-logging
-    command: ["/garage", "server", "--single-node"]
-    volumes:
-      - ./garage.toml:/etc/garage.toml:ro
-      - ./garage-data:/var/lib/garage
-    networks:
-      - garage
-
-  garage-ui-init:
-    image: alpine:3.22
-    user: "0:0"
-    network_mode: none
-    command: ["sh", "-c", "chown 65532:65532 /data && chmod 0700 /data"]
-    volumes:
-      - ./garage-ui-data:/data
-
-  garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261023.1
-    restart: unless-stopped
-    logging: *default-logging
-    depends_on:
-      garage:
-        condition: service_started
-      garage-ui-init:
-        condition: service_completed_successfully
     ports:
       - "127.0.0.1:3909:3909"
     environment:
@@ -89,20 +29,50 @@ services:
       S3_ENDPOINT_URL: http://garage:3900
       S3_REGION: garage
       COOKIE_SECURE: "false"
-      NO_PROXY: localhost,127.0.0.1,garage
     volumes:
-      - ./garage-ui-data:/data
-    networks:
-      - garage
-
-networks:
-  garage:
-    name: garage
+      - garage-ui-data:/data
+volumes:
+  garage-ui-data:
 ```
 
-The one-shot `garage-ui-init` service sets the UI data directory ownership automatically before the non-root UI starts. Both services must mount the same dedicated UI directory. `NO_PROXY` keeps internal Garage requests off inherited proxies. Set the UI's admin token and region to match `garage.toml`. Garage's metadata and data paths must be under `/var/lib/garage`, or adjust the volume mounts to match your configuration. For a new installation, prepare `garage.toml` using the [Garage quick start](https://garagehq.deuxfleurs.fr/documentation/quick-start/).
+`garage` is the service name in the example. For Garage outside this Compose project, use an address that the UI container can reach. The Admin token comes from Garage's configuration and is not an S3 access key. The named volume is initialized for the non-root UI automatically. If you use a host directory instead, give it to UID/GID `65532:65532` and keep it dedicated to the UI.
 
-This example initializes a **new single-node Garage** without data redundancy. Use the previous UI-only example for an existing cluster. Garage's APIs stay inside the Docker network; publish S3 separately if other clients need access.
+### Run Garage and the UI together
+
+For a new single-node Garage, place your `garage.toml` beside `compose.yaml` and use:
+
+```yaml
+services:
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    command: ["/garage", "server", "--single-node"]
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-data:/var/lib/garage
+
+  garage-ui:
+    image: ghcr.io/xjoker/garage-ui:20261023.3
+    restart: unless-stopped
+    depends_on:
+      - garage
+    ports:
+      - "127.0.0.1:3909:3909"
+    environment:
+      GARAGE_ADMIN_URL: http://garage:3903
+      GARAGE_ADMIN_TOKEN: replace-with-your-garage-admin-token
+      S3_ENDPOINT_URL: http://garage:3900
+      S3_REGION: garage
+      COOKIE_SECURE: "false"
+    volumes:
+      - garage-ui-data:/data
+
+volumes:
+  garage-data:
+  garage-ui-data:
+```
+
+Set the UI token and region to match `garage.toml`. Garage must listen on `0.0.0.0:3903` for its Admin API and `0.0.0.0:3900` for S3; keep its data and metadata paths under `/var/lib/garage` or adjust the mounts. See Garage's [configuration quick start](https://garagehq.deuxfleurs.fr/documentation/quick-start/). This example has one node and no data redundancy. Garage APIs stay inside the Compose network; publish S3 separately if other clients need access.
 
 ### Start and open the UI
 
@@ -110,7 +80,9 @@ This example initializes a **new single-node Garage** without data redundancy. U
 docker compose up -d
 ```
 
-Open **[http://localhost:3909](http://localhost:3909)** and create your first UI administrator. Existing buckets automatically use an available S3 key with read and write access. For a new bucket, create an S3 key, grant it access, and open **Objects** to upload a file.
+Open **[http://localhost:3909](http://localhost:3909)** and create the first UI administrator. The UI has its own login: choose the username and password on this screen. Garage admin tokens and S3 keys are not UI login credentials.
+
+Existing buckets automatically use a compatible read-write S3 key. For a new bucket, create or select a key and grant it access. Viewer accounts remain read-only; accounts bound to an S3 key keep that key’s grants. Download and share permissions remain separate.
 
 The examples use local HTTP. For remote access, configure [HTTPS](docs/wiki/Deployment.md#serve-the-ui-over-https) and change `COOKIE_SECURE` to `"true"`. For a remote Docker host, use `ssh -L 3909:127.0.0.1:3909 your-server` to access the local port.
 
@@ -126,18 +98,9 @@ docker compose down
 
 `down` preserves data. Adding `--volumes` deletes named volumes; bind-mounted host directories remain on disk.
 
-To change the host port, edit the `ports` mapping. For share links, add a recipient-reachable `S3_PUBLIC_ENDPOINT_URL` under the UI service’s `environment`. See [Deployment](docs/wiki/Deployment.md) for networking, HTTPS, backups, upgrades, Docker without Compose, Linux binaries, and Helm; see [Configuration](docs/wiki/Configuration.md) for the full settings reference.
+For HTTPS, set `COOKIE_SECURE: "true"` and place a reverse proxy in front of the loopback port. For share links, add a recipient-reachable `S3_PUBLIC_ENDPOINT_URL`. See [Deployment](docs/wiki/Deployment.md) for networking, backups, upgrades, binaries, and Helm; see [Configuration](docs/wiki/Configuration.md) for every setting.
 
 ## What you can do
-
-![Garage UI object browser](docs/images/objects-desktop.png)
-
-<details>
-<summary>On a smaller screen</summary>
-
-<img src="docs/images/objects-mobile.png" width="240" alt="Garage UI object browser on a narrow screen">
-
-</details>
 
 - **Files:** browse folders, preview media and text, upload files or folders, download selections as ZIPs, and create expiring share links.
 - **Storage:** manage buckets, aliases, quotas, CORS, lifecycle rules, and incomplete uploads.
@@ -149,7 +112,7 @@ Compatibility has been tested with **Garage v2.3.0 and v2.4.1**. Versions older 
 
 ## Security and persistence
 
-Authentication is always enabled. The first visit creates a UI administrator; the Garage admin token stays on the server. Keep Compose and credential files private and protect remote access with HTTPS.
+Authentication is always enabled. The first visit creates a UI administrator; the Garage admin token stays on the server. Keep Compose files containing tokens private and protect remote access with HTTPS.
 
 The UI's `/data` volume contains accounts, sessions, audit records, bucket-key selections, and the session key. Stop the UI before backing up the complete volume. Garage holds the actual objects and cluster state; back up its data and configuration separately. See [backup and restore](docs/wiki/Deployment.md#back-up-and-restore-ui-state).
 
@@ -161,7 +124,6 @@ Release images and binaries are unsigned. Releases include an SBOM and SHA-256 c
 - [Troubleshooting](docs/wiki/Troubleshooting.md): startup errors, login loops, and Garage/S3 connection failures.
 - [Contributing](CONTRIBUTING.md): build from source and run focused checks.
 - [Support assessment](docs/garage-support.md), [roadmap](docs/roadmap.md), and [verification evidence](docs/README.md#verification-evidence): compatibility, delivery status, and validation limits.
-- [Working specifications](docs/README.md): requirements and acceptance targets.
 
 This is a separate project from [Noooste/garage-ui](https://github.com/Noooste/garage-ui).
 

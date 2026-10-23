@@ -3,5 +3,10 @@ web/node_modules
 web/dist
 .git
 .claude
+.env
+.env.*
+!.env.example
+data
+.local-backups
 evidence-local
 .DS_Store

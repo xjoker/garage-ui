@@ -6,6 +6,13 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261023.3
+
+- Build and publish official releases through GitHub Actions, after frontend and Rust tests, release checks, and source/history secret scanning pass.
+- Keep local environment files and AI configuration out of Git and Docker build contexts, and narrowly exclude a literal regression-test URL from credential detection.
+- Refresh deployment, configuration, feature, contribution, and Wiki documentation for the current application; remove superseded development instructions and obsolete screenshots.
+- Align Compose and Helm defaults with the release version.
+
 ## 20261023.2
 
 - Redesign the console with Radix colors, clearer navigation groups, consistent typography, compact resource tables, and responsive light and dark layouts.

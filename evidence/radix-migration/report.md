@@ -1,5 +1,7 @@
 # Radix Themes migration evidence
 
+> Historical verification for the source revisions named below. For current deployment and release instructions, see [Contributing](../../CONTRIBUTING.md) and the [operator guide](../../docs/wiki/Home.md).
+
 Verified on October 14, 2026. Product build: `a7000a8` (`20261014.2`), with the Vite frontend embedded in the Rust binary and served from one container.
 
 ## Build and test results
