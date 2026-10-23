@@ -25,7 +25,7 @@
 ```yaml
 services:
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.2
+    image: ghcr.io/xjoker/garage-ui:20261023.1
     restart: unless-stopped
     ports:
       - "127.0.0.1:3909:3909"
@@ -75,7 +75,7 @@ services:
       - ./garage-ui-data:/data
 
   garage-ui:
-    image: ghcr.io/xjoker/garage-ui:20261022.2
+    image: ghcr.io/xjoker/garage-ui:20261023.1
     restart: unless-stopped
     logging: *default-logging
     depends_on:

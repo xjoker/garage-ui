@@ -6,6 +6,11 @@ Each release section describes its named release or unpublished draft. **Unrelea
 
 No unreleased changes.
 
+## 20261023.1
+
+- Update Vite from 6.4.3 to 6.4.5 to fix development-server security advisories, including the `server.fs.deny` query bypass (GHSA-8g5g-mxqh-grgj).
+- Update Vitest and its locked internal packages from 4.1.11 to 4.1.12 to fix two mock-server security advisories.
+
 ## 20261022.2
 
 - Automatically find an existing, non-expired S3 key with read and write access to each bucket when no project-wide key or explicit bucket selection is configured. No manual selection or new Garage permission grant is required.
